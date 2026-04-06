@@ -966,8 +966,9 @@ DOMAIN_INDUSTRY_POOL: dict[str, list[str]] = {
 _CURRENCY_POOL = ["USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY", "INR", "BRL"]
 
 _TICKER_POOL = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "JPM", "BAC", "WMT",
-    "JNJ", "PG", "UNH", "V", "HD", "MA", "DIS", "NVDA", "PFE", "KO",
+    "SPX", "SPY", "QQQ", "IWM", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA",
+    "JPM", "BAC", "WMT", "JNJ", "PG", "UNH", "V", "HD", "MA", "DIS",
+    "NVDA", "PFE", "KO",
 ]
 
 _DRUG_CLASS_POOL = [
