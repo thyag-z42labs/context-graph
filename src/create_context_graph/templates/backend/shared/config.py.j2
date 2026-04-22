@@ -16,6 +16,34 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     frontend_port: int = 3000
 
+{% if 'github' in saas_connectors %}
+    github_token: str = ""
+    github_repo: str = ""
+{% endif %}
+
+{% if 'notion' in saas_connectors %}
+    notion_token: str = ""
+{% endif %}
+
+{% if 'jira' in saas_connectors %}
+    jira_url: str = ""
+    jira_email: str = ""
+    jira_token: str = ""
+    jira_project: str = ""
+{% endif %}
+
+{% if 'slack' in saas_connectors %}
+    slack_token: str = ""
+    slack_channels: str = ""
+{% endif %}
+
+{% if 'salesforce' in saas_connectors %}
+    salesforce_username: str = ""
+    salesforce_password: str = ""
+    salesforce_security_token: str = ""
+    salesforce_domain: str = "login"
+{% endif %}
+
 {% if 'linear' in saas_connectors %}
     linear_api_key: str = ""
     linear_team: str = ""

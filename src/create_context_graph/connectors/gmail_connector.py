@@ -146,9 +146,9 @@ class GmailConnector(BaseConnector):
             if from_addr:
                 relationships.append({
                     "type": "SENT",
-                    "source": from_addr.split("<")[0].strip().strip('"'),
+                    "source_name": from_addr.split("<")[0].strip().strip('"'),
                     "source_label": "Person",
-                    "target": subject or f"Email {msg_id[:8]}",
+                    "target_name": subject or f"Email {msg_id[:8]}",
                     "target_label": "Email",
                 })
 
@@ -214,9 +214,9 @@ class GmailConnector(BaseConnector):
             if from_addr:
                 relationships.append({
                     "type": "SENT",
-                    "source": from_addr.split("<")[0].strip().strip('"'),
+                    "source_name": from_addr.split("<")[0].strip().strip('"'),
                     "source_label": "Person",
-                    "target": subject or f"Email {msg['id'][:8]}",
+                    "target_name": subject or f"Email {msg['id'][:8]}",
                     "target_label": "Email",
                 })
 

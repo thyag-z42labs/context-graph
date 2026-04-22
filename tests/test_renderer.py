@@ -542,6 +542,60 @@ class TestProjectRenderer:
         prompts = [p for s in ctx["demo_scenarios"] for p in s["prompts"]]
         assert not any("pull request" in p.lower() for p in prompts)
 
+    def test_config_py_has_connector_fields(self, tmp_output):
+        """Verify config.py includes Settings fields for each selected connector."""
+        cases = [
+            ("github", ["github_token", "github_repo"]),
+            ("notion", ["notion_token"]),
+            ("jira", ["jira_url", "jira_email", "jira_token", "jira_project"]),
+            ("slack", ["slack_token", "slack_channels"]),
+            ("salesforce", ["salesforce_username", "salesforce_password"]),
+            ("linear", ["linear_api_key", "linear_team"]),
+            ("claude-code", ["claude_code_scope", "claude_code_since"]),
+        ]
+        for connector_id, expected_fields in cases:
+            config = ProjectConfig(
+                project_name="test-config",
+                domain="software-engineering",
+                framework="pydanticai",
+                saas_connectors=[connector_id],
+            )
+            ontology = load_domain(config.domain)
+            renderer = ProjectRenderer(config, ontology)
+            renderer.render(tmp_output)
+            config_py = (tmp_output / "backend" / "app" / "config.py").read_text()
+            for field in expected_fields:
+                assert field in config_py, (
+                    f"config.py missing '{field}' when connector '{connector_id}' is selected"
+                )
+
+    def test_pyproject_has_connector_deps(self, tmp_output):
+        """Verify pyproject.toml includes the right package for each connector."""
+        cases = [
+            ("github", "PyGithub"),
+            ("notion", "notion-client"),
+            ("jira", "atlassian-python-api"),
+            ("slack", "slack-sdk"),
+            ("salesforce", "simple-salesforce"),
+            ("gmail", "google-api-python-client"),
+            ("gcal", "google-api-python-client"),
+            ("google-workspace", "google-api-python-client"),
+        ]
+        for connector_id, expected_pkg in cases:
+            config = ProjectConfig(
+                project_name="test-deps",
+                domain="software-engineering",
+                framework="pydanticai",
+                saas_connectors=[connector_id],
+            )
+            ontology = load_domain(config.domain)
+            renderer = ProjectRenderer(config, ontology)
+            renderer.render(tmp_output)
+            pyproject = (tmp_output / "backend" / "pyproject.toml").read_text()
+            assert expected_pkg in pyproject, (
+                f"pyproject.toml missing '{expected_pkg}' when connector '{connector_id}' is selected"
+            )
+
     def test_no_scenario_override_without_connector(self, financial_config, tmp_output):
         """Without claude-code connector, domain scenarios should be used as-is."""
         ontology = load_domain(financial_config.domain)

@@ -18,6 +18,25 @@ dependencies = [
 {% for dep in framework_deps %}
     "{{ dep }}",
 {% endfor %}
+{% if 'github' in saas_connectors %}
+    "PyGithub>=2.0",
+{% endif %}
+{% if 'notion' in saas_connectors %}
+    "notion-client>=2.0",
+{% endif %}
+{% if 'jira' in saas_connectors %}
+    "atlassian-python-api>=3.0",
+{% endif %}
+{% if 'slack' in saas_connectors %}
+    "slack-sdk>=3.0",
+{% endif %}
+{% if 'salesforce' in saas_connectors %}
+    "simple-salesforce>=1.0",
+{% endif %}
+{% if 'gmail' in saas_connectors or 'gcal' in saas_connectors or 'google-workspace' in saas_connectors %}
+    "google-api-python-client>=2.0",
+    "google-auth-oauthlib>=1.0",
+{% endif %}
 ]
 
 [tool.hatch.build.targets.wheel]

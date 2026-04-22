@@ -270,6 +270,7 @@ class ProjectRenderer:
             "pydantic_models": generate_pydantic_models(self.ontology),
             "visualization": generate_visualization_config(self.ontology),
             "saas_connectors": self.config.saas_connectors,
+            "connector_credentials": self.config.saas_credentials,
             "with_mcp": self.config.with_mcp,
             "mcp_profile": self.config.mcp_profile,
             "session_strategy": self.config.session_strategy,
@@ -541,8 +542,10 @@ class ProjectRenderer:
         if base_yaml.exists():
             shutil.copy2(base_yaml, data_dir / "_base.yaml")
 
-        # Copy pre-generated fixtures if available
-        fixtures_dir = Path(str(files("create_context_graph") / "fixtures"))
-        fixture_file = fixtures_dir / f"{self.config.domain}.json"
-        if fixture_file.exists():
-            shutil.copy2(fixture_file, data_dir / "fixtures.json")
+        # Copy pre-generated fixtures only when no connectors are selected
+        # (connector projects populate fixtures.json via `make import`)
+        if not self.config.saas_connectors:
+            fixtures_dir = Path(str(files("create_context_graph") / "fixtures"))
+            fixture_file = fixtures_dir / f"{self.config.domain}.json"
+            if fixture_file.exists():
+                shutil.copy2(fixture_file, data_dir / "fixtures.json")

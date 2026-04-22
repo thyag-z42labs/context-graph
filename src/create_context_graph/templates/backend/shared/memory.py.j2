@@ -34,15 +34,15 @@ async def connect_memory() -> None:
             session_strategy=strategy_map.get(
                 settings.session_strategy, SessionStrategy.PER_CONVERSATION
             ),
-            auto_extract={{ auto_extract | tojson }},
-            auto_preferences={{ auto_preferences | tojson }},
+            auto_extract={{ auto_extract | capitalize }},
+            auto_preferences={{ auto_preferences | capitalize }},
         )
         await _memory.connect()
         logger.info(
             "MemoryIntegration connected (strategy=%s, extract=%s, preferences=%s)",
             settings.session_strategy,
-            {{ auto_extract | tojson }},
-            {{ auto_preferences | tojson }},
+            {{ auto_extract | capitalize }},
+            {{ auto_preferences | capitalize }},
         )
     except ImportError:
         logger.info("neo4j-agent-memory not installed — memory disabled")

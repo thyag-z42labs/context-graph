@@ -16,16 +16,42 @@ DOMAIN_ID={{ domain.id }}
 BACKEND_PORT=8000
 FRONTEND_PORT=3000
 
+{% if 'github' in saas_connectors %}
+# GitHub (repository data import)
+GITHUB_TOKEN={{ connector_credentials.get('github', {}).get('token', '') }}
+GITHUB_REPO={{ connector_credentials.get('github', {}).get('repo', '') }}
+{% endif %}
+{% if 'notion' in saas_connectors %}
+# Notion (knowledge base import)
+NOTION_TOKEN={{ connector_credentials.get('notion', {}).get('token', '') }}
+{% endif %}
+{% if 'jira' in saas_connectors %}
+# Jira (issue tracking import)
+JIRA_URL={{ connector_credentials.get('jira', {}).get('url', '') }}
+JIRA_EMAIL={{ connector_credentials.get('jira', {}).get('email', '') }}
+JIRA_TOKEN={{ connector_credentials.get('jira', {}).get('token', '') }}
+JIRA_PROJECT={{ connector_credentials.get('jira', {}).get('project', '') }}
+{% endif %}
+{% if 'slack' in saas_connectors %}
+# Slack (channel history import)
+SLACK_TOKEN={{ connector_credentials.get('slack', {}).get('token', '') }}
+{% endif %}
+{% if 'salesforce' in saas_connectors %}
+# Salesforce (CRM data import)
+SALESFORCE_USERNAME={{ connector_credentials.get('salesforce', {}).get('username', '') }}
+SALESFORCE_PASSWORD={{ connector_credentials.get('salesforce', {}).get('password', '') }}
+SALESFORCE_SECURITY_TOKEN={{ connector_credentials.get('salesforce', {}).get('security_token', '') }}
+{% endif %}
 {% if 'linear' in saas_connectors %}
-# Linear (project management data import)
-LINEAR_API_KEY=
-LINEAR_TEAM=
+# Linear (project management import)
+LINEAR_API_KEY={{ connector_credentials.get('linear', {}).get('api_key', '') }}
+LINEAR_TEAM={{ connector_credentials.get('linear', {}).get('team_key', '') }}
 {% endif %}
 {% if 'google-workspace' in saas_connectors %}
 # Google Workspace (decision trace import)
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GWS_FOLDER_ID=
+GOOGLE_CLIENT_ID={{ connector_credentials.get('google-workspace', {}).get('client_id', '') }}
+GOOGLE_CLIENT_SECRET={{ connector_credentials.get('google-workspace', {}).get('client_secret', '') }}
+GWS_FOLDER_ID={{ connector_credentials.get('google-workspace', {}).get('folder_id', '') }}
 {% endif %}
 # Suppress HuggingFace Hub warnings (set HF_TOKEN for higher rate limits)
 HF_HUB_DISABLE_TELEMETRY=1

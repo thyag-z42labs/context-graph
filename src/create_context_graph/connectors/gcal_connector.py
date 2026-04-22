@@ -118,9 +118,9 @@ class GCalConnector(BaseConnector):
             })
             relationships.append({
                 "type": "ATTENDING",
-                "source": name,
+                "source_name": name,
                 "source_label": "Person",
-                "target": summary,
+                "target_name": summary,
                 "target_label": "CalendarEvent",
             })
 
@@ -130,9 +130,9 @@ class GCalConnector(BaseConnector):
             org_name = organizer.get("displayName", org_email.split("@")[0] if org_email else "Unknown")
             relationships.append({
                 "type": "ORGANIZED",
-                "source": org_name,
+                "source_name": org_name,
                 "source_label": "Person",
-                "target": summary,
+                "target_name": summary,
                 "target_label": "CalendarEvent",
             })
 

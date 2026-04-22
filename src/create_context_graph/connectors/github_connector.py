@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from itertools import islice
 from typing import Any
 
 from create_context_graph.connectors import (
@@ -100,9 +101,9 @@ class GitHubConnector(BaseConnector):
             })
             relationships.append({
                 "type": "BELONGS_TO",
-                "source": repo.full_name,
+                "source_name":repo.full_name,
                 "source_label": "Repository",
-                "target": repo.organization.login,
+                "target_name":repo.organization.login,
                 "target_label": "Organization",
             })
 
@@ -118,7 +119,7 @@ class GitHubConnector(BaseConnector):
             return user.login if user else "unknown"
 
         # Issues
-        for issue in repo.get_issues(state="all", sort="updated", direction="desc")[:limit]:
+        for issue in islice(repo.get_issues(state="all", sort="updated", direction="desc"), limit):
             if issue.pull_request:
                 continue  # Skip PRs in issues list
             user_name = _add_user(issue.user)
@@ -131,9 +132,9 @@ class GitHubConnector(BaseConnector):
             })
             relationships.append({
                 "type": "OPENED",
-                "source": user_name,
+                "source_name":user_name,
                 "source_label": "Person",
-                "target": issue.title,
+                "target_name":issue.title,
                 "target_label": "Issue",
             })
             if issue.body:
@@ -149,7 +150,7 @@ class GitHubConnector(BaseConnector):
                 })
 
         # Pull Requests
-        for pr in repo.get_pulls(state="all", sort="updated", direction="desc")[:limit]:
+        for pr in islice(repo.get_pulls(state="all", sort="updated", direction="desc"), limit):
             user_name = _add_user(pr.user)
             entities["PullRequest"].append({
                 "name": pr.title,
@@ -160,9 +161,9 @@ class GitHubConnector(BaseConnector):
             })
             relationships.append({
                 "type": "OPENED",
-                "source": user_name,
+                "source_name":user_name,
                 "source_label": "Person",
-                "target": pr.title,
+                "target_name":pr.title,
                 "target_label": "PullRequest",
             })
             if pr.body:
@@ -179,7 +180,7 @@ class GitHubConnector(BaseConnector):
                 })
 
         # Recent commits
-        for commit in repo.get_commits()[:min(limit, 50)]:
+        for commit in islice(repo.get_commits(), min(limit, 50)):
             author_name = "unknown"
             if commit.author:
                 author_name = _add_user(commit.author)
@@ -191,16 +192,16 @@ class GitHubConnector(BaseConnector):
             })
             relationships.append({
                 "type": "COMMITTED",
-                "source": author_name,
+                "source_name":author_name,
                 "source_label": "Person",
-                "target": commit.sha[:8],
+                "target_name":commit.sha[:8],
                 "target_label": "Commit",
             })
             relationships.append({
                 "type": "COMMITTED_TO",
-                "source": commit.sha[:8],
+                "source_name":commit.sha[:8],
                 "source_label": "Commit",
-                "target": repo.full_name,
+                "target_name":repo.full_name,
                 "target_label": "Repository",
             })
 
@@ -208,9 +209,9 @@ class GitHubConnector(BaseConnector):
         for user in seen_users:
             relationships.append({
                 "type": "CONTRIBUTED_TO",
-                "source": user,
+                "source_name":user,
                 "source_label": "Person",
-                "target": repo.full_name,
+                "target_name":repo.full_name,
                 "target_label": "Repository",
             })
 

@@ -22,8 +22,34 @@ SESSION_STRATEGY={{ session_strategy }}
 BACKEND_PORT=8000
 FRONTEND_PORT=3000
 
+{% if 'github' in saas_connectors %}
+# GitHub (repository data import)
+GITHUB_TOKEN=your-github-pat-here  # Settings > Developer settings > Personal access tokens
+GITHUB_REPO=owner/repo  # e.g. neo4j-labs/create-context-graph
+{% endif %}
+{% if 'notion' in saas_connectors %}
+# Notion (knowledge base import)
+NOTION_TOKEN=your-notion-integration-token-here
+{% endif %}
+{% if 'jira' in saas_connectors %}
+# Jira (issue tracking import)
+JIRA_URL=https://your-org.atlassian.net
+JIRA_EMAIL=your-email@example.com
+JIRA_TOKEN=your-jira-api-token-here
+JIRA_PROJECT=your-project-key  # e.g. ENG
+{% endif %}
+{% if 'slack' in saas_connectors %}
+# Slack (channel history import)
+SLACK_TOKEN=your-slack-bot-token-here  # xoxb-...
+{% endif %}
+{% if 'salesforce' in saas_connectors %}
+# Salesforce (CRM data import)
+SALESFORCE_USERNAME=your-username@example.com
+SALESFORCE_PASSWORD=your-password-here
+SALESFORCE_SECURITY_TOKEN=your-security-token-here
+{% endif %}
 {% if 'linear' in saas_connectors %}
-# Linear (project management data import)
+# Linear (project management import)
 LINEAR_API_KEY=your-linear-api-key-here  # From Linear Settings > Security & Access > API
 LINEAR_TEAM=  # Optional: team key to filter import (e.g., ENG)
 {% endif %}

@@ -459,20 +459,21 @@ def main(
     except ValueError:
         display_path = out
     console.print(f"  [bold]cd {display_path}[/bold]")
-    console.print("  [bold]make install[/bold]       # Install dependencies")
+    console.print("  [bold]make install[/bold]          # Install dependencies")
     if config.neo4j_type == "docker":
-        console.print("  [bold]make docker-up[/bold]    # Start Neo4j")
+        console.print("  [bold]make docker-up[/bold]       # Start Neo4j")
     elif config.neo4j_type == "local":
-        console.print("  [bold]make neo4j-start[/bold]  # Start Neo4j (requires Node.js)")
-    if ingest:
-        console.print("  [bold]make seed[/bold]          # Re-seed sample data (already ingested)")
-    else:
-        console.print("  [bold]make seed[/bold]          # Seed sample data")
+        console.print("  [bold]make neo4j-start[/bold]     # Start Neo4j (requires Node.js)")
     if config.saas_connectors:
-        console.print("  [bold]make import[/bold]         # Re-import from connected services")
+        console.print("  [bold]make import[/bold]           # Fetch real data from connected services")
+        console.print("  [bold]make seed[/bold]             # Apply schema + ingest data into Neo4j")
+    elif ingest:
+        console.print("  [bold]make seed[/bold]             # Re-seed sample data (already ingested)")
+    else:
+        console.print("  [bold]make seed[/bold]             # Apply schema + seed sample data")
     if config.with_mcp:
-        console.print("  [bold]make mcp-server[/bold]    # Start MCP server for Claude Desktop")
-    console.print("  [bold]make start[/bold]         # Start backend + frontend")
+        console.print("  [bold]make mcp-server[/bold]      # Start MCP server for Claude Desktop")
+    console.print("  [bold]make start[/bold]            # Start backend + frontend")
     console.print()
     console.print("  Backend:  http://localhost:8000")
     console.print("  Frontend: http://localhost:3000")

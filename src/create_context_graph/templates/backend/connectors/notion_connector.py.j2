@@ -108,9 +108,9 @@ class NotionConnector:
                 if user_id:
                     relationships.append({
                         "type": "AUTHORED",
-                        "source": created_by.get("name", user_id),
+                        "source_name": created_by.get("name", user_id),
                         "source_label": "Person",
-                        "target": title,
+                        "target_name": title,
                         "target_label": "Page",
                     })
 
@@ -137,9 +137,9 @@ class NotionConnector:
                 db_id = parent["database_id"]
                 relationships.append({
                     "type": "BELONGS_TO",
-                    "source": title,
+                    "source_name": title,
                     "source_label": "Page",
-                    "target": db_id,
+                    "target_name": db_id,
                     "target_label": "Database",
                 })
 
