@@ -152,9 +152,9 @@ class JiraConnector(BaseConnector):
             if assignee:
                 relationships.append({
                     "type": "ASSIGNED_TO",
-                    "source": f"{issue_key}: {summary}",
+                    "source_name": f"{issue_key}: {summary}",
                     "source_label": "Issue",
-                    "target": assignee,
+                    "target_name": assignee,
                     "target_label": "Person",
                 })
 
@@ -163,9 +163,9 @@ class JiraConnector(BaseConnector):
             if reporter:
                 relationships.append({
                     "type": "REPORTED_BY",
-                    "source": f"{issue_key}: {summary}",
+                    "source_name": f"{issue_key}: {summary}",
                     "source_label": "Issue",
-                    "target": reporter,
+                    "target_name": reporter,
                     "target_label": "Person",
                 })
 
@@ -184,18 +184,18 @@ class JiraConnector(BaseConnector):
                 if sprint_name:
                     relationships.append({
                         "type": "IN_SPRINT",
-                        "source": f"{issue_key}: {summary}",
+                        "source_name": f"{issue_key}: {summary}",
                         "source_label": "Issue",
-                        "target": sprint_name,
+                        "target_name": sprint_name,
                         "target_label": "Sprint",
                     })
 
             # Belongs to project
             relationships.append({
                 "type": "BELONGS_TO",
-                "source": f"{issue_key}: {summary}",
+                "source_name": f"{issue_key}: {summary}",
                 "source_label": "Issue",
-                "target": self._project_key,
+                "target_name": self._project_key,
                 "target_label": "Project",
             })
 

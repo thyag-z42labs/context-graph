@@ -122,9 +122,9 @@ class SalesforceConnector(BaseConnector):
             if account and account.get("Name"):
                 relationships.append({
                     "type": "WORKS_FOR",
-                    "source": name,
+                    "source_name": name,
                     "source_label": "Person",
-                    "target": account["Name"],
+                    "target_name": account["Name"],
                     "target_label": "Account",
                 })
 
@@ -144,9 +144,9 @@ class SalesforceConnector(BaseConnector):
             if account and account.get("Name"):
                 relationships.append({
                     "type": "OPPORTUNITY_FOR",
-                    "source": record.get("Name", ""),
+                    "source_name": record.get("Name", ""),
                     "source_label": "Opportunity",
-                    "target": account["Name"],
+                    "target_name": account["Name"],
                     "target_label": "Account",
                 })
 

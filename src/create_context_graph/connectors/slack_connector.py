@@ -149,16 +149,16 @@ class SlackConnector(BaseConnector):
 
                 relationships.append({
                     "type": "POSTED_IN",
-                    "source": text[:80],
+                    "source_name": text[:80],
                     "source_label": "Message",
-                    "target": channel_name,
+                    "target_name": channel_name,
                     "target_label": "Channel",
                 })
                 relationships.append({
                     "type": "SENT_BY",
-                    "source": text[:80],
+                    "source_name": text[:80],
                     "source_label": "Message",
-                    "target": user_name,
+                    "target_name": user_name,
                     "target_label": "Person",
                 })
 

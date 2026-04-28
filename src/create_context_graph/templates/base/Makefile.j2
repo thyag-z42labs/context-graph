@@ -4,7 +4,7 @@
 -include .env
 export
 
-.PHONY: start dev dev-backend dev-frontend install seed reset test-connection clean test test-e2e lint docker-build docker-prod-up docker-prod-down
+.PHONY: start dev dev-backend dev-frontend install schema seed reset test-connection clean test test-e2e lint docker-build docker-prod-up docker-prod-down
 
 # Start both backend and frontend
 start:
@@ -38,7 +38,11 @@ install-frontend:
 # Install everything
 install: install-backend install-frontend
 
-# Seed data into Neo4j
+# Apply Neo4j schema constraints and indexes only (no data)
+schema:
+	cd backend && uv run python -c "import asyncio; from scripts.generate_data import apply_schema; asyncio.run(apply_schema())"
+
+# Apply schema and ingest fixtures.json into Neo4j (real data if present, otherwise dummy data)
 seed:
 	cd backend && uv run python scripts/generate_data.py
 
@@ -84,12 +88,13 @@ mcp-server:  ## Start MCP server for Claude Desktop
 {% endif %}
 
 {% if saas_connectors %}
-# Data import from connected services
+# Fetch real data from connected services into data/fixtures.json
 import:
 	cd backend && uv run python scripts/import_data.py
 
+# Fetch real data and ingest it into Neo4j (schema + import + seed in one step)
 import-and-seed: import
-	cd backend && uv run python scripts/generate_data.py --ingest
+	cd backend && uv run python scripts/generate_data.py
 {% endif %}
 
 # Test

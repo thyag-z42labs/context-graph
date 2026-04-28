@@ -165,6 +165,274 @@ class TestGitHubConnector:
         assert "Repository" in result.entities
         assert len(result.entities["Repository"]) == 1
 
+    def _make_mock_repo_with_issue(self, mock_github_module):
+        """Helper that returns a mock repo with one issue that has a body."""
+        mock_repo = MagicMock()
+        mock_repo.full_name = "owner/repo"
+        mock_repo.description = "Test repo"
+        mock_repo.html_url = "https://github.com/owner/repo"
+        mock_repo.language = "Python"
+        mock_repo.stargazers_count = 0
+        mock_repo.organization = None
+        mock_repo.get_pulls.return_value = []
+        mock_repo.get_commits.return_value = []
+
+        mock_user = MagicMock()
+        mock_user.login = "alice"
+        mock_user.name = "Alice"
+        mock_user.email = ""
+
+        mock_issue = MagicMock()
+        mock_issue.pull_request = None
+        mock_issue.number = 1
+        mock_issue.title = "Test issue"
+        mock_issue.state = "open"
+        mock_issue.body = "Issue body content"
+        mock_issue.created_at = None
+        mock_issue.labels = []
+        mock_issue.user = mock_user
+
+        mock_repo.get_issues.return_value = [mock_issue]
+
+        mock_client = MagicMock()
+        mock_client.get_repo.return_value = mock_repo
+        mock_github_module.Github.return_value = mock_client
+        return mock_repo
+
+    def test_import_body_default_true(self):
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_issue(mock_github_module)
+
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors.github_connector import GitHubConnector
+
+            conn = GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            result = conn.fetch()
+
+        assert len(result.documents) == 1
+        assert result.documents[0]["type"] == "issue-body"
+
+    def test_import_body_kwarg_false(self):
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_issue(mock_github_module)
+
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors.github_connector import GitHubConnector
+
+            conn = GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            result = conn.fetch(import_body=False)
+
+        assert result.documents == []
+
+    def test_import_body_env_false(self, monkeypatch):
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_issue(mock_github_module)
+        monkeypatch.setenv("GITHUB_IMPORT_BODY", "false")
+
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors.github_connector import GitHubConnector
+
+            conn = GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            result = conn.fetch()
+
+        assert result.documents == []
+
+    def test_import_body_kwarg_overrides_env(self, monkeypatch):
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_issue(mock_github_module)
+        monkeypatch.setenv("GITHUB_IMPORT_BODY", "false")
+
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors.github_connector import GitHubConnector
+
+            conn = GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            result = conn.fetch(import_body=True)
+
+        assert len(result.documents) == 1
+
+    def test_extract_refs_separates_closes_from_references(self):
+        from create_context_graph.connectors.github_connector import _extract_refs
+
+        closes, refs = _extract_refs("This fixes #1 and closes #2. See also #3 and #4.")
+        assert closes == {1, 2}
+        assert refs == {3, 4}
+
+    def test_extract_refs_overlapping_number(self):
+        from create_context_graph.connectors.github_connector import _extract_refs
+
+        # #5 appears with a closing keyword AND bare — must not be in references
+        closes, refs = _extract_refs("resolves #5. See prior discussion in #5.")
+        assert closes == {5}
+        assert refs == set()
+
+    def test_extract_refs_empty_text(self):
+        from create_context_graph.connectors.github_connector import _extract_refs
+
+        assert _extract_refs("") == (set(), set())
+        assert _extract_refs(None) == (set(), set())
+
+    def test_extract_refs_ignores_in_word_hashes(self):
+        from create_context_graph.connectors.github_connector import _extract_refs
+
+        # "abc#1" should not match (# inside a word)
+        closes, refs = _extract_refs("color abc#1 but see #7")
+        assert closes == set()
+        assert refs == {7}
+
+    def _make_mock_repo_with_linking_fixtures(self, mock_github_module):
+        """Repo with 1 Issue (#1), 1 PR (#10) whose body 'fixes #1', and 1 Commit referencing #10."""
+        mock_repo = MagicMock()
+        mock_repo.full_name = "owner/repo"
+        mock_repo.description = "Test repo"
+        mock_repo.html_url = "https://github.com/owner/repo"
+        mock_repo.language = "Python"
+        mock_repo.stargazers_count = 0
+        mock_repo.organization = None
+
+        mock_user = MagicMock()
+        mock_user.login = "alice"
+        mock_user.name = "Alice"
+        mock_user.email = ""
+
+        mock_issue = MagicMock()
+        mock_issue.pull_request = None
+        mock_issue.number = 1
+        mock_issue.title = "Bug: things broken"
+        mock_issue.state = "open"
+        mock_issue.body = "something is broken"
+        mock_issue.created_at = None
+        mock_issue.labels = []
+        mock_issue.user = mock_user
+        mock_repo.get_issues.return_value = [mock_issue]
+
+        mock_pr = MagicMock()
+        mock_pr.number = 10
+        mock_pr.title = "Fix the thing"
+        mock_pr.state = "closed"
+        mock_pr.merged = True
+        mock_pr.body = "This fixes #1. See also #99 which does not exist in our fetched set."
+        mock_pr.created_at = None
+        mock_pr.user = mock_user
+        mock_repo.get_pulls.return_value = [mock_pr]
+
+        mock_commit = MagicMock()
+        mock_commit.sha = "abcdef1234567890"
+        mock_commit.commit.message = "Refactor. See #10 for rationale."
+        mock_commit.commit.author.date = None
+        mock_commit.author = mock_user
+        mock_repo.get_commits.return_value = [mock_commit]
+
+        mock_client = MagicMock()
+        mock_client.get_repo.return_value = mock_repo
+        mock_github_module.Github.return_value = mock_client
+        return mock_repo
+
+    def _fetch_with_linking(self, monkeypatch, **fetch_kwargs):
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_linking_fixtures(mock_github_module)
+        # Default link source to "regex" in tests so we don't hit the network
+        monkeypatch.setenv("GITHUB_LINK_SOURCE", "regex")
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors.github_connector import GitHubConnector
+
+            conn = GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            return conn.fetch(**fetch_kwargs)
+
+    def test_linking_emits_closes_from_pr_body(self, monkeypatch):
+        result = self._fetch_with_linking(monkeypatch)
+        closes_rels = [r for r in result.relationships if r["type"] == "CLOSES"]
+        assert len(closes_rels) == 1
+        rel = closes_rels[0]
+        assert rel["source_name"] == "Fix the thing"
+        assert rel["source_label"] == "PullRequest"
+        assert rel["target_name"] == "Bug: things broken"
+        assert rel["target_label"] == "Issue"
+
+    def test_linking_emits_references_from_commit_message(self, monkeypatch):
+        result = self._fetch_with_linking(monkeypatch)
+        ref_rels = [r for r in result.relationships if r["type"] == "REFERENCES"]
+        commit_to_pr = [r for r in ref_rels if r["source_label"] == "Commit" and r["target_label"] == "PullRequest"]
+        assert len(commit_to_pr) == 1
+        assert commit_to_pr[0]["target_name"] == "Fix the thing"
+
+    def test_linking_skips_unknown_numbers(self, monkeypatch):
+        """#99 is referenced but not in the fetched set, so no relationship is emitted."""
+        result = self._fetch_with_linking(monkeypatch)
+        ref_rels = [r for r in result.relationships if r["type"] == "REFERENCES"]
+        # Only the Commit→PullRequest (#10) reference; nothing for #99
+        assert all(r["target_label"] in ("PullRequest", "Issue") for r in ref_rels)
+        assert not any(r["target_name"] == "99" for r in ref_rels)
+
+    def test_linking_disabled_by_kwarg(self, monkeypatch):
+        result = self._fetch_with_linking(monkeypatch, link_issues_prs=False)
+        link_types = {r["type"] for r in result.relationships}
+        assert "CLOSES" not in link_types
+        assert "REFERENCES" not in link_types
+
+    def test_linking_disabled_by_env(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_LINK_ISSUES_PRS", "false")
+        result = self._fetch_with_linking(monkeypatch)
+        link_types = {r["type"] for r in result.relationships}
+        assert "CLOSES" not in link_types
+        assert "REFERENCES" not in link_types
+
+    def test_linking_closes_takes_precedence_over_references(self, monkeypatch):
+        """A pair that matches both CLOSES and REFERENCES should only appear as CLOSES."""
+        result = self._fetch_with_linking(monkeypatch)
+        pairs_closes = {(r["source_name"], r["target_name"]) for r in result.relationships if r["type"] == "CLOSES"}
+        pairs_refs = {(r["source_name"], r["target_name"]) for r in result.relationships if r["type"] == "REFERENCES"}
+        assert pairs_closes & pairs_refs == set()
+
+    def test_linking_graphql_path_calls_fetcher(self, monkeypatch):
+        """With link_source=graphql, the regex path is skipped and GraphQL is consulted."""
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_linking_fixtures(mock_github_module)
+
+        call_log: list[int] = []
+
+        def fake_graphql(token, owner, repo_name, pr_number, timeout=30.0):
+            call_log.append(pr_number)
+            # Pretend the GraphQL API reports PR #10 closes issue #1
+            return [1] if pr_number == 10 else []
+
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors import github_connector as gh_module
+            monkeypatch.setattr(gh_module, "_fetch_closing_refs_graphql", fake_graphql)
+
+            conn = gh_module.GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            result = conn.fetch(link_source="graphql")
+
+        assert call_log == [10]
+        closes_rels = [r for r in result.relationships if r["type"] == "CLOSES"]
+        assert len(closes_rels) == 1
+        assert closes_rels[0]["source_name"] == "Fix the thing"
+        assert closes_rels[0]["target_name"] == "Bug: things broken"
+
+    def test_linking_both_dedupes_across_sources(self, monkeypatch):
+        """regex + graphql reporting the same closure should produce only one CLOSES relationship."""
+        mock_github_module = MagicMock()
+        self._make_mock_repo_with_linking_fixtures(mock_github_module)
+
+        def fake_graphql(token, owner, repo_name, pr_number, timeout=30.0):
+            return [1] if pr_number == 10 else []
+
+        with patch.dict("sys.modules", {"github": mock_github_module}):
+            from create_context_graph.connectors import github_connector as gh_module
+            monkeypatch.setattr(gh_module, "_fetch_closing_refs_graphql", fake_graphql)
+
+            conn = gh_module.GitHubConnector()
+            conn.authenticate({"token": "fake", "repo": "owner/repo"})
+            result = conn.fetch(link_source="both")
+
+        closes_rels = [r for r in result.relationships if r["type"] == "CLOSES" and r["target_name"] == "Bug: things broken"]
+        assert len(closes_rels) == 1
+
 
 class TestNotionConnector:
     def test_fetch_returns_normalized_data(self):
