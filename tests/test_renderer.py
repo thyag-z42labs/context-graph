@@ -697,6 +697,111 @@ class TestAllFrameworksRender:
             )
 
 
+class TestCustomDomainRender:
+    """Regression: renderer must complete a full scaffold when the user
+    supplies ``custom_domain_yaml`` (via ``--custom-domain`` LLM generation).
+
+    The original bug at renderer.py:557 imported ``_get_domains_path`` *only*
+    inside the ``else`` branch of the custom-vs-builtin domain check, but
+    referenced it again on the next line for the ``_base.yaml`` copy. On the
+    custom-domain path the import never fired, Python treated the name as a
+    local (because the inner branch wrote to it), and the renderer raised
+    ``UnboundLocalError`` after ``data/ontology.yaml`` was already written —
+    leaving a partial scaffold the user couldn't recover from.
+    """
+
+    def _custom_yaml(self) -> str:
+        """A realistic ontology YAML matching what generate_custom_domain returns."""
+        import importlib.resources
+        # Reuse the healthcare YAML as a stand-in — the renderer doesn't care
+        # whether the YAML came from an LLM or a packaged file, only that it's
+        # valid ontology content keyed by domain.id.
+        path = (
+            importlib.resources.files("create_context_graph")
+            / "domains"
+            / "healthcare.yaml"
+        )
+        return path.read_text()
+
+    def test_renders_full_scaffold_with_custom_domain_yaml(self, tmp_path):
+        from create_context_graph.config import ProjectConfig
+        from create_context_graph.ontology import load_domain_from_yaml_string
+
+        yaml_str = self._custom_yaml()
+        ontology = load_domain_from_yaml_string(yaml_str)
+        config = ProjectConfig(
+            project_name="CustomScaffold",
+            domain=ontology.domain.id,
+            framework="langgraph",
+            custom_domain_yaml=yaml_str,
+        )
+        out = tmp_path / "custom-scaffold"
+        # The original bug raised UnboundLocalError mid-render. Just calling
+        # render() to completion is the regression assertion.
+        ProjectRenderer(config, ontology).render(out)
+
+        # Sanity: the expected key files all exist and are non-empty.
+        for relpath in (
+            "backend/app/agent.py",
+            "backend/app/main.py",
+            "backend/pyproject.toml",
+            "data/ontology.yaml",
+            "data/_base.yaml",
+            "frontend/package.json",
+            "Makefile",
+            ".env",
+            "README.md",
+        ):
+            f = out / relpath
+            assert f.exists(), f"Custom-domain render did not produce {relpath}"
+            assert f.stat().st_size > 0, f"{relpath} is empty"
+
+        # The custom YAML was written verbatim (not the packaged copy).
+        written = (out / "data" / "ontology.yaml").read_text()
+        assert written == yaml_str
+
+        # _base.yaml comes from the package, not the custom YAML.
+        base = (out / "data" / "_base.yaml").read_text()
+        assert "inherits" not in base  # _base.yaml is the root — nothing to inherit
+        assert "entity_types:" in base or "domain:" in base
+
+    def test_base_yaml_copied_regardless_of_custom_domain(self, tmp_path):
+        """The bug surfaced specifically because _base.yaml copy lives OUTSIDE
+        the custom-vs-builtin branch — so both branches must produce it.
+        """
+        from create_context_graph.config import ProjectConfig
+        from create_context_graph.ontology import load_domain, load_domain_from_yaml_string
+
+        # Builtin domain path
+        builtin_cfg = ProjectConfig(
+            project_name="Builtin",
+            domain="healthcare",
+            framework="pydanticai",
+        )
+        builtin_out = tmp_path / "builtin"
+        ProjectRenderer(builtin_cfg, load_domain("healthcare")).render(builtin_out)
+        assert (builtin_out / "data" / "_base.yaml").exists()
+
+        # Custom domain path
+        yaml_str = self._custom_yaml()
+        custom_cfg = ProjectConfig(
+            project_name="Custom",
+            domain="healthcare",
+            framework="pydanticai",
+            custom_domain_yaml=yaml_str,
+        )
+        custom_out = tmp_path / "custom"
+        ProjectRenderer(custom_cfg, load_domain_from_yaml_string(yaml_str)).render(
+            custom_out
+        )
+        assert (custom_out / "data" / "_base.yaml").exists()
+
+        # Both _base.yaml copies must come from the package — identical content.
+        assert (builtin_out / "data" / "_base.yaml").read_text() == (
+            custom_out / "data" / "_base.yaml"
+        ).read_text()
+
+
 class TestFrameworkAgentNotStubFallback:
     """Regression guard for the silent stub-fallback at ``renderer.py:430``.
 

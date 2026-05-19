@@ -27,6 +27,7 @@ from jinja2.exceptions import TemplateNotFound
 from create_context_graph.config import ProjectConfig
 from create_context_graph.ontology import (
     DomainOntology,
+    _get_domains_path,
     generate_cypher_schema,
     generate_pydantic_models,
     generate_visualization_config,
@@ -554,13 +555,11 @@ class ProjectRenderer:
             # Write custom domain YAML directly
             (data_dir / "ontology.yaml").write_text(self.config.custom_domain_yaml)
         else:
-            from create_context_graph.ontology import _get_domains_path
-
             domain_yaml = _get_domains_path() / f"{self.config.domain}.yaml"
             if domain_yaml.exists():
                 shutil.copy2(domain_yaml, data_dir / "ontology.yaml")
 
-        # Also copy base
+        # Also copy base (always — independent of custom-vs-builtin domain)
         base_yaml = _get_domains_path() / "_base.yaml"
         if base_yaml.exists():
             shutil.copy2(base_yaml, data_dir / "_base.yaml")
