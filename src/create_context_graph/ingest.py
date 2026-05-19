@@ -848,15 +848,15 @@ def reset_memory_store(config: "ProjectConfig") -> None:
 
 def _coerce_ingest_config(
     ontology: DomainOntology,
-    config_or_neo4j_uri: "ProjectConfig | str",
+    config_or_uri: "ProjectConfig | str",
     neo4j_username: str | None,
     neo4j_password: str | None,
 ) -> "ProjectConfig":
     """Accept either a ProjectConfig or the legacy bolt Neo4j credentials."""
     from create_context_graph.config import ProjectConfig
 
-    if isinstance(config_or_neo4j_uri, ProjectConfig):
-        return config_or_neo4j_uri
+    if isinstance(config_or_uri, ProjectConfig):
+        return config_or_uri
 
     if neo4j_username is None or neo4j_password is None:
         raise TypeError(
@@ -868,7 +868,7 @@ def _coerce_ingest_config(
         project_name=ontology.domain.name,
         domain=ontology.domain.id,
         memory_backend="bolt",
-        neo4j_uri=config_or_neo4j_uri,
+        neo4j_uri=config_or_uri,
         neo4j_username=neo4j_username,
         neo4j_password=neo4j_password,
     )
@@ -877,7 +877,7 @@ def _coerce_ingest_config(
 def ingest_data(
     fixture_path: Path,
     ontology: DomainOntology,
-    config_or_neo4j_uri: "ProjectConfig | str",
+    config_or_uri: "ProjectConfig | str",
     neo4j_username: str | None = None,
     neo4j_password: str | None = None,
     body_fields: dict[str, str] | None = None,
@@ -887,12 +887,16 @@ def ingest_data(
     Accepts either a ``ProjectConfig`` or the legacy bolt-only
     ``(neo4j_uri, neo4j_username, neo4j_password)`` arguments.
 
+    Examples:
+        ingest_data(fixture_path, ontology, config)
+        ingest_data(fixture_path, ontology, neo4j_uri, neo4j_username, neo4j_password)
+
     ``body_fields`` is the union of every active connector's ``BODY_FIELDS``
     map; the demo fixture path passes ``None``/``{}`` because pre-generated
     fixtures don't carry connector-specific body conventions.
     """
     config = _coerce_ingest_config(
-        ontology, config_or_neo4j_uri, neo4j_username, neo4j_password
+        ontology, config_or_uri, neo4j_username, neo4j_password
     )
 
     if not fixture_path.exists():
