@@ -24,6 +24,7 @@ in the other.
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -157,7 +158,7 @@ def _clean(kw: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _exec_scaffold_template(client: _RecordingClient) -> Any:
+def _exec_scaffold_template(client: _RecordingClient) -> dict[str, Any]:
     """Render import_data.py.j2 enough to extract its ``_ingest_via_nams``
     function, then return a bound callable that uses ``client``."""
     template_path = (
@@ -209,7 +210,7 @@ def _exec_scaffold_template(client: _RecordingClient) -> Any:
         "__file__": str(synthetic_root / "backend" / "scripts" / "import_data.py"),
     }
     exec(compile(rendered, str(template_path), "exec"), ns)
-    return ns["_ingest_via_nams"]
+    return ns
 
 
 def _run_cli_path(client: _RecordingClient) -> list[tuple[str, dict[str, Any]]]:
@@ -226,21 +227,31 @@ def _run_cli_path(client: _RecordingClient) -> list[tuple[str, dict[str, Any]]]:
 
 
 def _run_scaffold_path(client: _RecordingClient) -> list[tuple[str, dict[str, Any]]]:
-    ingest_via_nams = _exec_scaffold_template(client)
+    prior_modules = {
+        name: sys.modules.get(name)
+        for name in ("app", "app.config", "app.connectors", "neo4j_agent_memory")
+    }
+    try:
+        ns = _exec_scaffold_template(client)
+        ingest_via_nams = ns["_ingest_via_nams"]
 
-    # The scaffolded path also writes failures to a deadletter file; point it
-    # at a temp dir so we don't pollute the repo.
-    import tempfile
+        # The scaffolded path also writes failures to a deadletter file; point it
+        # at a temp dir so we don't pollute the repo.
+        import tempfile
 
-    with tempfile.TemporaryDirectory() as tmp:
-        # The template hard-codes PROJECT_ROOT relative to the script file;
-        # we monkeypatch SIDECAR_DIR in the exec'd namespace.
-        ns = ingest_via_nams.__globals__
-        ns["SIDECAR_DIR"] = Path(tmp)
-        ns["DEADLETTER_FILE"] = Path(tmp) / "deadletter.jsonl"
-
-        asyncio.run(ingest_via_nams(CANONICAL_FIXTURE, BODY_FIELDS))
-    return list(client.calls)
+        with tempfile.TemporaryDirectory() as tmp:
+            # The template hard-codes PROJECT_ROOT relative to the script file;
+            # we monkeypatch SIDECAR_DIR in the exec'd namespace.
+            ns["SIDECAR_DIR"] = Path(tmp)
+            ns["DEADLETTER_FILE"] = Path(tmp) / "deadletter.jsonl"
+            asyncio.run(ingest_via_nams(CANONICAL_FIXTURE, BODY_FIELDS))
+        return list(client.calls)
+    finally:
+        for name, module in prior_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
 
 
 # ---------------------------------------------------------------------------
@@ -369,3 +380,92 @@ def test_no_relationship_writes_on_nams():
     scaffold_calls = _run_scaffold_path(_RecordingClient())
     assert all(n != "long_term.add_relationship" for n, _ in cli_calls)
     assert all(n != "long_term.add_relationship" for n, _ in scaffold_calls)
+
+
+def test_retry_deadletter_rebuilds_retryable_payloads():
+    ns = _exec_scaffold_template(_RecordingClient())
+    captured: dict[str, Any] = {}
+
+    async def _fake_ingest(payload, body_fields):
+        captured["payload"] = payload
+        captured["body_fields"] = body_fields
+        return {"failures": 0}
+
+    ns["_ingest_via_nams"] = _fake_ingest
+
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        deadletter = Path(tmp) / "deadletter.jsonl"
+        ns["DEADLETTER_FILE"] = deadletter
+        deadletter.write_text(
+            "\n".join(
+                json.dumps(record)
+                for record in [
+                    {"kind": "entity", "label": "Patient", "item": {"name": "Alice"}},
+                    {"kind": "entity-batch", "label": "Hospital", "items": [{"name": "Mercy"}]},
+                    {
+                        "kind": "body",
+                        "label": "Note",
+                        "item": {"name": "Note-1", "body": "hello"},
+                        "body_field": "body",
+                    },
+                    {"kind": "relationship", "rel": {"type": "ABOUT", "source_name": "Note-1", "target_name": "Alice"}},
+                    {"kind": "document", "doc": {"title": "Doc", "content": "body"}},
+                    {"kind": "trace", "trace": {"id": "t1", "task": "task", "steps": []}},
+                ]
+            ) + "\n"
+        )
+
+        assert ns["_retry_deadletter"]() == 0
+
+    assert captured["payload"]["entities"]["Patient"] == [{"name": "Alice"}]
+    assert captured["payload"]["entities"]["Hospital"] == [{"name": "Mercy"}]
+    assert captured["payload"]["entities"]["Note"] == [{"name": "Note-1", "body": "hello"}]
+    assert captured["payload"]["relationships"] == [
+        {"type": "ABOUT", "source_name": "Note-1", "target_name": "Alice"},
+    ]
+    assert captured["payload"]["documents"] == [{"title": "Doc", "content": "body"}]
+    assert captured["payload"]["traces"] == [{"id": "t1", "task": "task", "steps": []}]
+    assert captured["body_fields"] == {"Note": "body"}
+
+
+def test_bolt_ingest_rejects_unsafe_cypher_identifiers():
+    ns = _exec_scaffold_template(_RecordingClient())
+
+    class _Session:
+        def __init__(self):
+            self.run = MagicMock()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+    session = _Session()
+    driver = MagicMock()
+    driver.session.return_value = session
+    prior = sys.modules.get("app.context_graph_client")
+    try:
+        cgc_mod = ModuleType("app.context_graph_client")
+        cgc_mod.get_driver = MagicMock(return_value=driver)
+        sys.modules["app.context_graph_client"] = cgc_mod
+
+        counts = ns["_ingest_via_bolt"](
+            {
+                "entities": {"Bad Label": [{"name": "Alice"}]},
+                "relationships": [{"type": "BAD-TYPE", "source_name": "Alice", "target_name": "Bob"}],
+                "documents": [],
+                "traces": [],
+            },
+            {},
+        )
+    finally:
+        if prior is None:
+            sys.modules.pop("app.context_graph_client", None)
+        else:
+            sys.modules["app.context_graph_client"] = prior
+
+    assert counts["failures"] == 2
+    session.run.assert_not_called()

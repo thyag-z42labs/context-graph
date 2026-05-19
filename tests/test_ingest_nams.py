@@ -26,6 +26,7 @@ import pytest
 from create_context_graph.config import ProjectConfig
 from create_context_graph.ingest import (
     _get_pole_type,
+    _require_safe_cypher_identifier,
     _serialize_entity_to_description,
     ingest_data,
     reset_memory_store,
@@ -184,6 +185,15 @@ class TestSerializeEntityToDescription:
         assert "**Zero**" in desc
         assert "**Empty str**" not in desc
         assert "**None value**" not in desc
+
+
+class TestSafeCypherIdentifier:
+    def test_accepts_simple_identifier(self):
+        assert _require_safe_cypher_identifier("Patient_Record", "label") == "Patient_Record"
+
+    def test_rejects_punctuation(self):
+        with pytest.raises(ValueError, match="Unsafe Cypher label"):
+            _require_safe_cypher_identifier("Bad Label", "label")
 
 
 # ---------------------------------------------------------------------------

@@ -195,6 +195,19 @@ class TestListDocuments:
         assert "_pole_type" not in result[0]["preview"]
         assert "chest pain" in result[0]["preview"]
 
+    def test_skips_blank_description_after_stripping_metadata(self, nams_adapter):
+        adapter, memory_mod = nams_adapter
+        entity = SimpleNamespace(
+            name="EmptyDoc",
+            entity_type="OBJECT",
+            description="```ccg-edges\n- type: MENTIONS\n  target: Alice\n```\n\n_pole_type: OBJECT_",
+        )
+        client = MagicMock()
+        client.long_term.search_entities = AsyncMock(return_value=[entity])
+        memory_mod._client = client
+
+        assert _run(adapter.list_documents_nams(None, 0, 50)) == []
+
 
 # ---------------------------------------------------------------------------
 # get_document_nams
@@ -223,6 +236,15 @@ class TestGetDocument:
         client.long_term.search_entities = AsyncMock(return_value=[])
         memory_mod._client = client
         assert _run(adapter.get_document_nams("missing")) is None
+
+    def test_returns_none_when_content_is_blank_after_stripping_metadata(self, nams_adapter):
+        adapter, memory_mod = nams_adapter
+        entity = _make_doc_entity("DocB", content="")
+        client = MagicMock()
+        client.long_term.search_entities = AsyncMock(return_value=[entity])
+        memory_mod._client = client
+
+        assert _run(adapter.get_document_nams("DocB")) is None
 
 
 # ---------------------------------------------------------------------------

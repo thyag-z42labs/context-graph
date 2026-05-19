@@ -231,6 +231,8 @@ def _document_record_from_entity(entity: Any) -> dict[str, Any] | None:
         content = content.split("```ccg-edges", 1)[0].rstrip()
     if "_pole_type:" in content:
         content = content.rsplit("_pole_type:", 1)[0].rstrip()
+    if not content.strip():
+        return None
     return {
         "title": name,
         "content": content,

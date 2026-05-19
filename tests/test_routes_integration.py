@@ -307,6 +307,18 @@ class TestNamsRoutes:
             assert len(body["documents"]) == 1
             assert body["documents"][0]["title"] == "Discharge Note"
 
+    def test_documents_rejects_template_filter_on_nams(self, tmp_path):
+        from fastapi.testclient import TestClient
+
+        backend_dir = _scaffold(tmp_path, backend="nams")
+        client = _fake_client()
+        app, _, _ = _import_app(backend_dir, backend="nams", fake_client=client)
+
+        with TestClient(app) as tc:
+            r = tc.get("/api/documents?template_id=discharge")
+            assert r.status_code == 501
+            assert "not supported" in r.json()["detail"]
+
     def test_search_uses_long_term_search(self, tmp_path):
         from fastapi.testclient import TestClient
 

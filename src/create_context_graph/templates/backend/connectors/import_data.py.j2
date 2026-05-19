@@ -38,6 +38,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -117,6 +118,7 @@ def _now_utc_iso() -> str:
 CCG_EDGES_OPEN = "```ccg-edges"
 CCG_EDGES_CLOSE = "```"
 _RESERVED_DESCRIPTION_KEYS = {"name", "description", "domain", "id", "uuid"}
+_SAFE_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _format_attribute(key: str, value: Any) -> str | None:
@@ -203,6 +205,12 @@ def _resolve_body(item: dict[str, Any], label: str, body_fields: dict[str, str])
     return value if value.strip() else None
 
 
+def _require_safe_cypher_identifier(value: str, kind: str) -> str:
+    if isinstance(value, str) and _SAFE_CYPHER_IDENTIFIER_RE.fullmatch(value):
+        return value
+    raise ValueError(f"Unsafe Cypher {kind}: {value!r}")
+
+
 async def _ingest_via_nams(data: dict[str, Any], body_fields: dict[str, str]) -> dict[str, int]:
     """Write data into NAMS. Mirrors src/create_context_graph/ingest.py
     run_nams_ingest() — kept in lockstep via test_nams_ingest_parity.py."""
@@ -262,6 +270,7 @@ async def _ingest_via_nams(data: dict[str, Any], body_fields: dict[str, str]) ->
                     _append_deadletter({
                         "ts": _now_utc_iso(), "kind": "body",
                         "label": label, "name": name, "error": str(exc),
+                        "item": item, "body_field": body_fields.get(label, ""),
                     })
 
         # Documents — dual-tracked
@@ -296,7 +305,7 @@ async def _ingest_via_nams(data: dict[str, Any], body_fields: dict[str, str]) ->
                 counts["failures"] += 1
                 _append_deadletter({
                     "ts": _now_utc_iso(), "kind": "document",
-                    "title": title, "error": str(exc),
+                    "title": title, "error": str(exc), "doc": doc,
                 })
 
         # Decision traces
@@ -321,7 +330,7 @@ async def _ingest_via_nams(data: dict[str, Any], body_fields: dict[str, str]) ->
                 counts["failures"] += 1
                 _append_deadletter({
                     "ts": _now_utc_iso(), "kind": "trace",
-                    "id": trace.get("id", ""), "error": str(exc),
+                    "id": trace.get("id", ""), "error": str(exc), "trace": trace,
                 })
 
     return counts
@@ -345,6 +354,15 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
         for label, items in data.get("entities", {}).items():
             if not items:
                 continue
+            try:
+                safe_label = _require_safe_cypher_identifier(label, "label")
+            except ValueError as exc:
+                counts["failures"] += 1
+                _append_deadletter({
+                    "ts": _now_utc_iso(), "kind": "entity-batch",
+                    "label": label, "error": str(exc), "items": items,
+                })
+                continue
             all_keys: set[str] = set()
             for item in items:
                 all_keys.update(item.keys())
@@ -364,18 +382,20 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
                 safe_items.append(safe)
             set_clause = ", ".join(f"n.{k} = item.{k}" for k in all_keys)
             cypher = (
-                f"UNWIND $batch AS item MERGE (n:{label} {{name: item.name}}) "
+                f"UNWIND $batch AS item MERGE (n:{safe_label} {{name: item.name}}) "
                 f"ON CREATE SET {set_clause} ON MATCH SET {set_clause}"
             )
             for i in range(0, len(safe_items), 500):
+                batch = safe_items[i:i + 500]
                 try:
-                    session.run(cypher, batch=safe_items[i:i + 500])
-                    counts["entities"] += len(safe_items[i:i + 500])
+                    session.run(cypher, batch=batch)
+                    counts["entities"] += len(batch)
                 except Exception as exc:  # noqa: BLE001
                     counts["failures"] += 1
                     _append_deadletter({
                         "ts": _now_utc_iso(), "kind": "entity-batch",
                         "label": label, "error": str(exc),
+                        "items": batch,
                     })
 
         # Relationships — native edges
@@ -383,10 +403,19 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
             rel_type = rel.get("type", "")
             if not rel_type:
                 continue
+            try:
+                safe_rel_type = _require_safe_cypher_identifier(rel_type, "relationship type")
+            except ValueError as exc:
+                counts["failures"] += 1
+                _append_deadletter({
+                    "ts": _now_utc_iso(), "kind": "relationship",
+                    "type": rel_type, "error": str(exc), "rel": rel,
+                })
+                continue
             cypher = (
                 f"MATCH (a {{name: $source_name}}) "
                 f"MATCH (b {{name: $target_name}}) "
-                f"MERGE (a)-[r:{rel_type}]->(b)"
+                f"MERGE (a)-[r:{safe_rel_type}]->(b)"
             )
             try:
                 session.run(cypher, {
@@ -398,7 +427,7 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
                 counts["failures"] += 1
                 _append_deadletter({
                     "ts": _now_utc_iso(), "kind": "relationship",
-                    "type": rel_type, "error": str(exc),
+                    "type": rel_type, "error": str(exc), "rel": rel,
                 })
 
         # Documents
@@ -420,7 +449,7 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
                 counts["failures"] += 1
                 _append_deadletter({
                     "ts": _now_utc_iso(), "kind": "document",
-                    "title": doc.get("title", ""), "error": str(exc),
+                    "title": doc.get("title", ""), "error": str(exc), "doc": doc,
                 })
 
         # Decision traces
@@ -454,7 +483,7 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
                 counts["failures"] += 1
                 _append_deadletter({
                     "ts": _now_utc_iso(), "kind": "trace",
-                    "id": trace.get("id", ""), "error": str(exc),
+                    "id": trace.get("id", ""), "error": str(exc), "trace": trace,
                 })
 
     return counts
@@ -663,11 +692,19 @@ def _retry_deadletter() -> int:
         kind = rec.get("kind")
         if kind == "entity" and "item" in rec:
             payload["entities"].setdefault(rec["label"], []).append(rec["item"])
+        elif kind == "entity-batch" and "items" in rec:
+            payload["entities"].setdefault(rec["label"], []).extend(rec["items"])
+        elif kind == "relationship" and "rel" in rec:
+            payload["relationships"].append(rec["rel"])
         elif kind == "document" and "doc" in rec:
             payload["documents"].append(rec["doc"])
         elif kind == "trace" and "trace" in rec:
             payload["traces"].append(rec["trace"])
-        # body / batch failures are skipped — they re-derive from entity retries
+        elif kind == "body" and "item" in rec:
+            payload["entities"].setdefault(rec["label"], []).append(rec["item"])
+            body_field = rec.get("body_field")
+            if body_field:
+                body_fields[rec["label"]] = body_field
 
     # Move the old file aside; if retry fails, write a fresh deadletter.
     archive = DEADLETTER_FILE.with_suffix(".jsonl.retrying")

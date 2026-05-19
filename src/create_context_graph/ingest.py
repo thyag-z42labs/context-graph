@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -61,6 +62,7 @@ console = Console()
 
 
 _RESERVED_DESCRIPTION_KEYS = {"name", "description", "domain", "id", "uuid"}
+_SAFE_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _format_attribute(key: str, value: Any) -> str | None:
@@ -113,6 +115,13 @@ def _get_pole_type(label: str, ontology: DomainOntology) -> str:
         if et.label == label:
             return et.pole_type
     return "OBJECT"
+
+
+def _require_safe_cypher_identifier(value: str, kind: str) -> str:
+    """Validate a dynamic Cypher identifier before string interpolation."""
+    if isinstance(value, str) and _SAFE_CYPHER_IDENTIFIER_RE.fullmatch(value):
+        return value
+    raise ValueError(f"Unsafe Cypher {kind}: {value!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -494,10 +503,13 @@ async def _ingest_with_memory_client(
             rel_count = 0
             for rel in relationships:
                 try:
+                    rel_type = _require_safe_cypher_identifier(
+                        rel.get("type", ""), "relationship type",
+                    )
                     cypher = f"""
                     MATCH (a {{name: $source_name}})
                     MATCH (b {{name: $target_name}})
-                    MERGE (a)-[r:{rel['type']}]->(b)
+                    MERGE (a)-[r:{rel_type}]->(b)
                     RETURN type(r)
                     """
                     await client.graph.execute_write(
@@ -643,10 +655,15 @@ async def _ingest_with_driver(
         entities = fixture_data.get("entities", {})
         async with driver.session() as session:
             for label, items in entities.items():
+                try:
+                    safe_label = _require_safe_cypher_identifier(label, "label")
+                except ValueError as e:
+                    console.print(f"  [yellow]Warning:[/yellow] Label {label!r}: {e}")
+                    continue
                 for item in items:
                     enriched = {**item, "domain": ontology.domain.id}
                     set_clauses = ", ".join(f"n.{k} = ${k}" for k in enriched.keys())
-                    cypher = f"MERGE (n:{label} {{name: $name, domain: $domain}}) SET {set_clauses}"
+                    cypher = f"MERGE (n:{safe_label} {{name: $name, domain: $domain}}) SET {set_clauses}"
                     try:
                         await session.run(cypher, enriched)
                         entity_count += 1
@@ -659,12 +676,21 @@ async def _ingest_with_driver(
         relationships = fixture_data.get("relationships", [])
         async with driver.session() as session:
             for rel in relationships:
-                cypher = f"""
-                MATCH (a:{rel['source_label']} {{name: $source_name}})
-                MATCH (b:{rel['target_label']} {{name: $target_name}})
-                MERGE (a)-[r:{rel['type']}]->(b)
-                """
                 try:
+                    source_label = _require_safe_cypher_identifier(
+                        rel.get("source_label", ""), "source label",
+                    )
+                    target_label = _require_safe_cypher_identifier(
+                        rel.get("target_label", ""), "target label",
+                    )
+                    rel_type = _require_safe_cypher_identifier(
+                        rel.get("type", ""), "relationship type",
+                    )
+                    cypher = f"""
+                    MATCH (a:{source_label} {{name: $source_name}})
+                    MATCH (b:{target_label} {{name: $target_name}})
+                    MERGE (a)-[r:{rel_type}]->(b)
+                    """
                     await session.run(cypher, {
                         "source_name": rel["source_name"],
                         "target_name": rel["target_name"],
