@@ -154,7 +154,7 @@ def _run_import_preview(
 @click.option("--anthropic-api-key", envvar="ANTHROPIC_API_KEY", help="Anthropic API key for LLM generation")
 @click.option("--openai-api-key", envvar="OPENAI_API_KEY", help="OpenAI API key for LLM generation")
 @click.option("--google-api-key", envvar="GOOGLE_API_KEY", help="Google/Gemini API key (required for google-adk framework)")
-@click.option("--custom-domain", type=str, help="Natural language description for custom domain generation (requires --anthropic-api-key)")
+@click.option("--custom-domain", type=str, help="Natural language description for custom domain generation. Requires --anthropic-api-key AND the 'anthropic' SDK; if running via uvx, use 'uvx --with anthropic create-context-graph ...'")
 @click.option("--connector", multiple=True, help="SaaS connector to enable (github, slack, jira, notion, gmail, gcal, salesforce, linear, google-workspace, claude-code, claude-ai, chatgpt, local-file)")
 @click.option("--linear-api-key", envvar="LINEAR_API_KEY", help="Linear API key (required for --connector linear)")
 @click.option("--linear-team", envvar="LINEAR_TEAM", help="Linear team key to filter import (e.g., ENG)")
