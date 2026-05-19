@@ -95,6 +95,11 @@ class TestGeneratedFrontendFiles:
         assert "next" in pkg["dependencies"]
         assert "react" in pkg["dependencies"]
         assert "@neo4j-nvl/react" in pkg["dependencies"]
+        # Both React type packages must be present — React 19's @types/react
+        # used to bundle DOM types, but we declare both explicitly so the
+        # type graph stays stable across future minor releases.
+        assert "@types/react" in pkg["devDependencies"]
+        assert "@types/react-dom" in pkg["devDependencies"]
 
     def test_tsconfig_valid(self, generated_project):
         out, _ = generated_project
@@ -121,6 +126,24 @@ class TestGeneratedFrontendFiles:
         for comp in components:
             assert (out / "frontend" / "components" / comp).exists(), f"Missing: {comp}"
 
+    def test_package_json_pins_safe_lodash_and_postcss(self, generated_project):
+        """npm audit must come back clean on a fresh scaffold.
+
+        @neo4j-nvl pulls in lodash@4.17.23 (vulnerable to CVE GHSA-r5fr-rjxr-66jc)
+        and next@15.5.x bundles postcss@8.4.31 (vulnerable to GHSA-qx2v-qp2m-jg93).
+        We force-upgrade both via the npm `overrides` field. Until upstream ships
+        fixes, removing the overrides re-introduces the vulnerabilities.
+        """
+        out, _ = generated_project
+        pkg = json.loads((out / "frontend" / "package.json").read_text())
+        assert "overrides" in pkg, "Frontend package.json must declare overrides"
+        ov = pkg["overrides"]
+        # ^4.17.24 is unsatisfiable in the 4.17.x line (no 4.17.24 exists);
+        # the rule's job is to push transitive resolutions to 4.18.x, which is
+        # the next safe major. If you change this pin, re-run `npm audit`.
+        assert ov.get("lodash") == "^4.17.24"
+        assert ov.get("postcss") == "^8.5.10"
+
     def test_layout_and_page_exist(self, generated_project):
         out, _ = generated_project
         assert (out / "frontend" / "app" / "layout.tsx").exists()
@@ -130,6 +153,20 @@ class TestGeneratedFrontendFiles:
     def test_theme_exists(self, generated_project):
         out, _ = generated_project
         assert (out / "frontend" / "theme" / "index.ts").exists()
+
+    def test_context_graph_view_ask_about_guard_is_string_typed(self, generated_project):
+        """Regression for TS2322: `unknown` is not assignable to `ReactNode`.
+
+        The "Ask about X" button guard at the bottom of the selected-node panel
+        must narrow `properties.name` to a string before using it in JSX,
+        otherwise `tsc` rejects the whole frontend build (carried from v0.9.0).
+        """
+        out, _ = generated_project
+        src = (out / "frontend" / "components" / "ContextGraphView.tsx").read_text()
+        assert (
+            'typeof (selectedElement.data as GraphNode).properties.name === "string"'
+            in src
+        ), "Ask-about guard must type-narrow properties.name to avoid TS2322"
 
 
 class TestGeneratedEnvExample:
@@ -151,6 +188,28 @@ class TestGeneratedEnvExample:
         content = (out / ".env.example").read_text()
         assert config.neo4j_password not in content
         assert "sk-ant-test-key" not in content
+
+    def test_config_py_does_not_bake_credentials(self, generated_project):
+        """The generated config.py must not embed real Neo4j credentials.
+
+        Defaults live in .env; config.py uses empty-string defaults so that
+        secrets never end up in committed source. The .env file holds the
+        user-provided values, loaded via pydantic-settings.
+        """
+        out, config = generated_project
+        cfg_py = (out / "backend" / "app" / "config.py").read_text()
+        # The user's actual password should not appear in source.
+        assert config.neo4j_password not in cfg_py, (
+            "config.py is leaking the Neo4j password into committed source. "
+            "Defaults must be empty strings — real values belong in .env."
+        )
+        # Sanity-check the fields are present but empty.
+        assert 'neo4j_uri: str = ""' in cfg_py
+        assert 'neo4j_username: str = ""' in cfg_py
+        assert 'neo4j_password: str = ""' in cfg_py
+        # And .env still carries the real values for pydantic-settings to load.
+        env = (out / ".env").read_text()
+        assert config.neo4j_password in env
 
 
 class TestGeneratedEnvFile:
@@ -672,8 +731,20 @@ class TestGISCartographyEnumCompilation:
 # Streaming SSE support tests
 # ---------------------------------------------------------------------------
 
-STREAMING_FRAMEWORKS = ["pydanticai", "anthropic-tools", "claude-agent-sdk", "openai-agents", "langgraph", "google-adk"]
-NON_STREAMING_FRAMEWORKS = ["crewai", "strands"]
+# All 8 frameworks now ship a streaming handler. Strands uses Agent.stream_async
+# directly; CrewAI subscribes to LLMStreamChunkEvent on the global event bus
+# with stream=True. (See agent.py.j2 in each framework's template.)
+STREAMING_FRAMEWORKS = [
+    "pydanticai",
+    "anthropic-tools",
+    "claude-agent-sdk",
+    "openai-agents",
+    "langgraph",
+    "google-adk",
+    "strands",
+    "crewai",
+]
+NON_STREAMING_FRAMEWORKS: list[str] = []
 
 
 class TestStreamingEndpoint:
@@ -773,6 +844,42 @@ class TestStreamingAgentTemplates:
         assert "get_collector" in agent_source
         assert "emit_text_delta" in agent_source
         assert "emit_done" in agent_source
+
+    def test_strands_streaming_uses_stream_async(self, tmp_path):
+        """Strands streaming must use Agent.stream_async (token-level deltas)."""
+        config = ProjectConfig(
+            project_name="Strands Stream",
+            domain="financial-services",
+            framework="strands",
+        )
+        out = tmp_path / "strands-stream"
+        ProjectRenderer(config, load_domain("financial-services")).render(out)
+        src = (out / "backend" / "app" / "agent.py").read_text()
+        assert "agent.stream_async" in src
+        # `data` field is what Strands events expose for text deltas
+        assert 'event.get("data")' in src
+        # Loop must be captured before streaming so sync @tool fallbacks work
+        assert "_capture_loop()" in src
+
+    def test_crewai_streaming_uses_event_bus(self, tmp_path):
+        """CrewAI streaming must subscribe to LLMStreamChunkEvent on the bus."""
+        config = ProjectConfig(
+            project_name="CrewAI Stream",
+            domain="financial-services",
+            framework="crewai",
+        )
+        out = tmp_path / "crewai-stream"
+        ProjectRenderer(config, load_domain("financial-services")).render(out)
+        src = (out / "backend" / "app" / "agent.py").read_text()
+        # Stream chunks ride the global event bus, not a callback kwarg
+        assert "crewai_event_bus" in src
+        assert "LLMStreamChunkEvent" in src
+        assert "register_handler" in src
+        # Crew must be in stream mode for chunks to actually fire
+        assert "stream=True" in src
+        # And the handler must be detached after the kickoff so subsequent
+        # requests don't double-emit (memory leak / mis-routed deltas).
+        assert ".off(" in src
 
 
 class TestStreamingFrontend:
@@ -1714,6 +1821,24 @@ class TestV060ChatInterfaceUI:
         out, _ = generated_project
         chat = (out / "frontend" / "components" / "ChatInterface.tsx").read_text()
         assert "Running tool" in chat, "Should show running tool count"
+
+    def test_e2e_demo_prompt_text_matches_chat_interface(self, generated_project):
+        """E2E test expectations must match the actual UI text.
+
+        Regression guard for the v0.11.2 mismatch where app.spec.ts looked for
+        "try a demo scenario" but ChatInterface had been refactored to render
+        "Try these". The two strings must agree, otherwise the Playwright
+        suite fails out of the box on every scaffold.
+        """
+        out, _ = generated_project
+        chat = (out / "frontend" / "components" / "ChatInterface.tsx").read_text()
+        spec = (out / "frontend" / "e2e" / "app.spec.ts").read_text()
+
+        # Whatever header text the UI uses, the E2E spec must look for it.
+        assert ">Try these<" in chat, "ChatInterface should render the 'Try these' header"
+        assert "/try these/i" in spec, "E2E spec must search for the same header text"
+        # And the obsolete string must not have crept back in.
+        assert "try a demo scenario" not in spec
 
 
 class TestV061DataQuality:

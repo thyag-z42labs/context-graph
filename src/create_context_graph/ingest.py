@@ -165,6 +165,10 @@ async def _ingest_with_nams(
             progress.update(task, description=f"[2/4] Ingested {entity_count} entities")
 
             # Step 2b: relationships — unsupported, log once
+            # TODO(nams-relationships): when neo4j-agent-memory exposes
+            # MemoryClient.add_relationship (tracking upstream), swap this
+            # console-note for the bolt path's ingest loop. Until then the
+            # docs in how-to/use-nams.md cover the bolt-first workaround.
             rel_count = len(fixture_data.get("relationships", []))
             if rel_count:
                 console.print(

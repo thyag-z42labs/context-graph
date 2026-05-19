@@ -28,7 +28,7 @@ test.describe("{{ domain.name }} Context Graph", () => {
 
   test("demo scenario badges are visible", async ({ page }) => {
     // Should show demo scenario section
-    await expect(page.getByText(/try a demo scenario/i)).toBeVisible();
+    await expect(page.getByText(/try these/i)).toBeVisible();
 
     // Should have clickable badges
     const badges = page.locator("[role='group'] span[data-scope='badge'], .chakra-badge").filter({ hasText: /.{10,}/ });
@@ -182,7 +182,7 @@ test.describe("{{ domain.name }} Context Graph", () => {
     await page.getByRole("button", { name: /new/i }).click();
 
     // Demo scenarios should be visible again
-    await expect(page.getByText(/try a demo scenario/i)).toBeVisible();
+    await expect(page.getByText(/try these/i)).toBeVisible();
   });
 
   // --------------------------------------------------------------------------

@@ -86,6 +86,45 @@ The NAMS REST API exposes a narrower write surface than bolt Cypher. The CLI doe
 
 The frontend handles these gaps transparently — graph view shows entities without edges, document browser pulls from the `documents` session, decision trace panel reads via the NAMS reasoning API.
 
+## Seeding a relationship-rich graph for a NAMS project
+
+NAMS doesn't yet expose relationship writes via its REST API, so `make seed` on a NAMS scaffold creates entities but skips edges. The graph view shows disconnected nodes.
+
+If you need the full POLE-typed graph with relationships — for instance, to demo `expand_node` from the chat or to run agent tools that traverse edges — there are two workarounds.
+
+### Option A — Bolt for development, NAMS for production reads
+
+Most teams adopt this pattern:
+
+1. **Scaffold the development project with `--self-hosted`:**
+   ```bash
+   uvx create-context-graph my-app --domain healthcare \
+     --framework strands --self-hosted --demo
+   ```
+   The `--demo` flag triggers `--reset-database --demo-data --ingest`, which seeds the full 80-entity / 180-edge demo graph into your local Neo4j.
+
+2. **Demo, develop, and validate against the bolt graph.** Agent tools, expand actions, and GDS algorithms all work.
+
+3. **Promote to NAMS for production by flipping `MEMORY_BACKEND` in `.env`:**
+   ```bash
+   MEMORY_BACKEND=nams
+   MEMORY_API_KEY=sk-nams-...
+   ```
+   On NAMS the agent will populate memory through conversation. Pre-existing relationships from the bolt seeding stay in the bolt database; NAMS starts fresh.
+
+### Option B — Dual-run during seeding only
+
+If you want NAMS in production but a relationship-rich starting state:
+
+1. Run `make seed` against bolt to seed the local graph.
+2. Migrate manually: extract entities + relationships from bolt and re-ingest into NAMS as graph-shaped descriptions (relationships flattened into the `description` field). The `--ingest` path already does the entity half; the relationship half requires a custom script today.
+
+This is operationally awkward — most users stick with Option A until NAMS adds `add_relationship` to the REST API.
+
+### When NAMS adds relationship writes
+
+The `ingest.py` module has a `# TODO(nams-relationships)` marker. When the upstream library ships `MemoryClient.add_relationship`, scaffolding with NAMS + `--demo` will produce the full graph without the bolt-first dance.
+
 ## Switching backends after scaffold
 
 The memory backend is a runtime choice driven by `MEMORY_BACKEND` and `MEMORY_API_KEY`. To switch a project from NAMS to self-hosted (or vice versa):

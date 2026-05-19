@@ -66,13 +66,37 @@ make start
 
 Your project is wired to the hosted Neo4j Agent Memory Service. Memory state lives in the cloud and is shared across processes (web app and `make mcp-server` both read/write the same graph).
 
-**Known limitations on the NAMS write API (v0.4):**
-- **Relationships** between domain entities are not yet exposed by NAMS REST. The graph view will show entities but no edges until upstream support lands.
-- **Entity properties** beyond `name`, `type`, `description` are dropped by the REST API. Properties from the bundled demo data are serialized into the `description` field as a markdown block.
-- **Preferences and facts** are not exposed by NAMS REST. `auto_preferences` is forced off.
-- **GDS endpoints** (`/gds/*`) return 501 on NAMS.
+**Known limitations on the NAMS API (v0.4):**
+
+| Limitation | Effect | Workaround |
+|---|---|---|
+| **Relationships** between domain entities are not exposed by NAMS REST. | The graph view shows entities but no edges. `make seed` logs a skip warning per relationship. | Re-scaffold with `--self-hosted --demo` for the full graph; or seed via Bolt and switch to NAMS for reads only. |
+| **Entity properties** beyond `name` / `type` / `description` are dropped by the REST API. | Demo properties are flattened into the `description` field as a markdown block. | Read the description field; structured property access lands when NAMS exposes the full write API. |
+| **Preferences and facts** are not exposed by NAMS REST. | `auto_preferences` is forced off; the SSE `preferences_detected` event will be empty. | Use the self-hosted bolt backend if you need preference/fact tracking. |
+| **GDS** (Graph Data Science) endpoints `/gds/communities` and `/gds/pagerank` return `501 Not Implemented`. | Community detection and PageRank are unavailable. | Self-hosted Neo4j with the GDS plugin enabled. |
+| **Ad-hoc Cypher** via `POST /cypher` returns `503`. | The cypher console / "Run Cypher" actions are disabled. | Connect Neo4j Browser to a self-hosted instance for arbitrary Cypher. |
+| **Schema introspection** via `GET /schema` is not exposed — the response is synthesized from your ontology's entity types. | The schema visualization works but doesn't reflect server-side schema changes. | The synthesized view tracks `data/ontology.yaml`; edit there if you need to change it. |
+| **MCP server** is forced to the `core` profile (6 tools), because the extended tool set relies on preference/fact APIs that NAMS doesn't yet expose. | `make mcp-server` exposes 6 tools instead of 16. | Self-hosted bolt backend supports the full `extended` profile. |
 
 For the full relationship-rich demo experience, re-scaffold with `--self-hosted`.
+
+### Diagnosing NAMS connection failures
+
+`GET /health` reports a categorized error when NAMS init fails:
+
+```json
+{
+  "status": "degraded",
+  "memory_backend": "nams",
+  "nams": false,
+  "nams_error": "auth",
+  "nams_error_message": "NAMS authentication failed — verify MEMORY_API_KEY at https://memory.neo4jlabs.com (key may be invalid or expired).",
+  "nams_error_detail": "HTTP 403",
+  "nams_dashboard": "https://memory.neo4jlabs.com"
+}
+```
+
+Categories: `auth` (401/403), `rate_limit` (429), `network` (5xx/timeout/DNS), `config` (missing key / endpoint), `unknown`.
 
 ## Switching memory provider/model
 

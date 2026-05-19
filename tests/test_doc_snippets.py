@@ -308,3 +308,30 @@ class TestEnvVariables:
             f"Expected at least 3 env vars in common between docs and template, "
             f"found {len(overlap)}: {sorted(overlap)}"
         )
+
+
+class TestNamsRelationshipWorkaround:
+    """The bolt-first NAMS workaround must be discoverable in the docs."""
+
+    def test_use_nams_doc_covers_relationship_seeding(self):
+        doc = (DOCS_DIR / "how-to" / "use-nams.md").read_text()
+        # Section heading + both option labels + the agreed mitigation phrase.
+        assert "Seeding a relationship-rich graph" in doc
+        assert "Option A" in doc and "Option B" in doc
+        # The recommended bolt-first flow should be explicit, including --demo.
+        assert "--self-hosted" in doc
+        assert "--demo" in doc
+        # And the doc should call out the upstream tracking marker so the two
+        # references stay in sync when the API lands.
+        assert "TODO(nams-relationships)" in doc
+
+    def test_ingest_py_has_tracked_todo_marker(self):
+        ingest = (
+            Path(__file__).resolve().parent.parent
+            / "src"
+            / "create_context_graph"
+            / "ingest.py"
+        ).read_text()
+        # The marker is the contract the docs reference — it tells future
+        # contributors where to plug in MemoryClient.add_relationship.
+        assert "TODO(nams-relationships)" in ingest

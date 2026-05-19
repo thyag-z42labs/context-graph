@@ -77,8 +77,20 @@ def _import_app(backend_dir: Path, *, backend: str, fake_client):
     os.environ.setdefault("OPENAI_API_KEY", "sk-test")
     os.environ.setdefault("GOOGLE_API_KEY", "sk-test")
     os.environ["MEMORY_BACKEND"] = backend
+    # Set ONLY the credentials matching the requested backend and clear the
+    # opposite ones — the generated Settings class auto-corrects a mismatch
+    # (e.g. MEMORY_BACKEND=bolt but only MEMORY_API_KEY set → flips to nams).
+    # Without this, env leakage from a previous nams test poisons bolt cases.
     if backend == "nams":
         os.environ["MEMORY_API_KEY"] = "sk-test"
+        os.environ.pop("NEO4J_URI", None)
+        os.environ.pop("NEO4J_USERNAME", None)
+        os.environ.pop("NEO4J_PASSWORD", None)
+    else:  # bolt
+        os.environ["NEO4J_URI"] = "neo4j://localhost:7687"
+        os.environ["NEO4J_USERNAME"] = "neo4j"
+        os.environ["NEO4J_PASSWORD"] = "test-pw"
+        os.environ.pop("MEMORY_API_KEY", None)
 
     # Stub neo4j_agent_memory before anything imports it
     fake_nam = ModuleType("neo4j_agent_memory")

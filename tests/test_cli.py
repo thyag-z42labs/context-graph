@@ -234,6 +234,52 @@ class TestCLIValidation:
         assert result.exit_code == 0
 
 
+class TestFrameworkAliasDeprecation:
+    """The deprecated ``maf`` alias still works but emits a warning."""
+
+    def test_maf_alias_still_scaffolds(self, runner, tmp_path):
+        out = tmp_path / "maf-alias-test"
+        result = runner.invoke(main, [
+            "maf-alias-test",
+            "--domain", "healthcare",
+            "--framework", "maf",
+            "--output-dir", str(out),
+            "--dry-run",
+        ])
+        assert result.exit_code == 0, result.output
+        # The alias resolves so the scaffold uses anthropic-tools downstream.
+        assert "anthropic-tools" in result.output or "Anthropic Tools" in result.output
+
+    def test_maf_alias_emits_deprecation_warning(self, runner, tmp_path):
+        out = tmp_path / "maf-warning-test"
+        result = runner.invoke(main, [
+            "maf-warning-test",
+            "--domain", "healthcare",
+            "--framework", "maf",
+            "--output-dir", str(out),
+            "--dry-run",
+        ])
+        assert result.exit_code == 0
+        # Click's default CliRunner mixes stderr into output.
+        assert "deprecated" in result.output.lower()
+        assert "maf" in result.output
+        assert "anthropic-tools" in result.output
+
+    def test_non_aliased_framework_no_warning(self, runner, tmp_path):
+        """Non-deprecated framework keys must not trigger the warning."""
+        out = tmp_path / "no-warning-test"
+        result = runner.invoke(main, [
+            "no-warning-test",
+            "--domain", "healthcare",
+            "--framework", "pydanticai",
+            "--output-dir", str(out),
+            "--dry-run",
+        ])
+        assert result.exit_code == 0
+        # The word "deprecated" should not appear in the output for live keys.
+        assert "deprecated" not in result.output.lower()
+
+
 class TestV060CLIFlags:
     """Tests for v0.6.0 CLI additions."""
 

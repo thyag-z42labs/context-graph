@@ -37,6 +37,96 @@ from create_context_graph.renderer import ProjectRenderer
 console = Console()
 
 
+def _run_import_preview(
+    *,
+    import_type: str,
+    import_file: str,
+    import_depth: str,
+    import_filter_after: str | None,
+    import_filter_before: str | None,
+    import_filter_title: str | None,
+    import_max_conversations: int,
+) -> None:
+    """Parse a chat export file and print a summary without scaffolding.
+
+    Run by ``--import-preview`` to let users sanity-check large exports
+    before committing them to a graph. Loads the named connector, runs
+    ``authenticate()`` + ``fetch()``, and emits a Rich-formatted summary.
+    Never writes to disk and never opens a Neo4j connection.
+    """
+    from pathlib import Path
+
+    from create_context_graph.connectors import get_connector
+
+    path = Path(import_file)
+    if not path.exists():
+        console.print(f"[red]Error:[/red] Import file not found: {import_file}")
+        raise SystemExit(1)
+
+    console.print(
+        f"\n[bold]Previewing {import_type} import from {path.name}[/bold]"
+    )
+
+    try:
+        connector = get_connector(import_type)
+    except Exception as e:  # noqa: BLE001 — surface library errors to the user
+        console.print(f"[red]Error:[/red] Unknown connector '{import_type}': {e}")
+        raise SystemExit(1)
+
+    credentials = {
+        "file_path": str(path.resolve()),
+        "depth": import_depth,
+        "filter_after": import_filter_after or "",
+        "filter_before": import_filter_before or "",
+        "filter_title": import_filter_title or "",
+        "max_conversations": str(import_max_conversations),
+    }
+    try:
+        connector.authenticate(credentials)
+        data = connector.fetch()
+    except Exception as e:  # noqa: BLE001 — connectors raise rich errors
+        console.print(f"[red]Error:[/red] Preview failed: {e}")
+        raise SystemExit(1)
+
+    # Summarize what the ingest would have produced.
+    entity_counts = {label: len(rows) for label, rows in data.entities.items()}
+    total_entities = sum(entity_counts.values())
+    conversations = data.entities.get("Conversation", [])
+    messages = data.entities.get("Message", [])
+
+    console.print(f"\n  Conversations: {len(conversations)}")
+    console.print(f"  Messages:      {len(messages)}")
+    console.print(f"  Documents:     {len(data.documents)}")
+    console.print(f"  Decision traces: {len(data.traces)}")
+    console.print(f"  Total entities:  {total_entities}")
+    if entity_counts:
+        console.print("  By label:")
+        for label, count in sorted(entity_counts.items()):
+            console.print(f"    {label}: {count}")
+
+    # Date range from conversation entities (if available)
+    timestamps = [c.get("created_at") for c in conversations if c.get("created_at")]
+    if timestamps:
+        timestamps.sort()
+        console.print(
+            f"\n  Conversation date range: {timestamps[0]} → {timestamps[-1]}"
+        )
+
+    # First 5 conversation titles as a sanity check
+    if conversations:
+        console.print("\n  Sample titles:")
+        for c in conversations[:5]:
+            title = c.get("title") or "(untitled)"
+            console.print(f"    • {title[:70]}")
+        if len(conversations) > 5:
+            console.print(f"    … and {len(conversations) - 5} more")
+
+    console.print(
+        "\n[green]Preview complete.[/green] "
+        "Re-run without --import-preview to scaffold and ingest."
+    )
+
+
 @click.command()
 @click.argument("project_name", required=False)
 @click.option(
@@ -94,6 +184,7 @@ console = Console()
 @click.option("--import-filter-before", type=str, help="Only import conversations before this date (ISO 8601)")
 @click.option("--import-filter-title", type=str, help="Only import conversations matching this title pattern (regex)")
 @click.option("--import-max-conversations", type=int, default=0, help="Maximum conversations to import (0=all)")
+@click.option("--import-preview", is_flag=True, default=False, help="Parse the import file and print a summary without scaffolding or ingesting")
 @click.option("--with-mcp", is_flag=True, default=False, help="Generate MCP server configuration for Claude Desktop")
 @click.option("--mcp-profile", type=click.Choice(["core", "extended"], case_sensitive=False), default="extended", help="MCP tool profile (core=6 tools, extended=16 tools)")
 @click.option("--session-strategy", type=click.Choice(["per_conversation", "per_day", "persistent"], case_sensitive=False), default="per_conversation", help="Memory session strategy")
@@ -155,6 +246,7 @@ def main(
     import_filter_before: str | None,
     import_filter_title: str | None,
     import_max_conversations: int,
+    import_preview: bool,
     with_mcp: bool,
     mcp_profile: str,
     session_strategy: str,
@@ -195,6 +287,26 @@ def main(
     if import_type:
         connector = tuple(list(connector) + [import_type])
 
+    # --import-preview: parse the export file, print a summary, and exit.
+    # Skips scaffolding and ingestion entirely so users can sanity-check
+    # large exports before committing them to a graph.
+    if import_preview:
+        if not (import_type and import_file):
+            console.print(
+                "[red]Error:[/red] --import-preview requires --import-type and --import-file."
+            )
+            raise SystemExit(1)
+        _run_import_preview(
+            import_type=import_type,
+            import_file=import_file,
+            import_depth=import_depth,
+            import_filter_after=import_filter_after,
+            import_filter_before=import_filter_before,
+            import_filter_title=import_filter_title,
+            import_max_conversations=import_max_conversations,
+        )
+        return
+
     # List domains mode
     if list_domains:
         domains = list_available_domains()
@@ -229,8 +341,15 @@ def main(
         domain = custom_ontology.domain.id
 
     # Resolve deprecated framework aliases
-    if framework:
-        framework = FRAMEWORK_ALIASES.get(framework, framework)
+    if framework and framework in FRAMEWORK_ALIASES:
+        resolved = FRAMEWORK_ALIASES[framework]
+        click.secho(
+            f"Warning: --framework {framework} is deprecated and will be "
+            f"removed in a future release. Use --framework {resolved} instead.",
+            fg="yellow",
+            err=True,
+        )
+        framework = resolved
 
     # Handle Neo4j Aura .env import
     if neo4j_aura_env:
