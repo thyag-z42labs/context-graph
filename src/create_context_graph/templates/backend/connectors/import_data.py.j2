@@ -405,6 +405,16 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
                 continue
             try:
                 safe_rel_type = _require_safe_cypher_identifier(rel_type, "relationship type")
+                source_label = rel.get("source_label", "")
+                target_label = rel.get("target_label", "")
+                source_pattern = "a"
+                target_pattern = "b"
+                if source_label:
+                    safe_source_label = _require_safe_cypher_identifier(source_label, "source label")
+                    source_pattern = f"a:{safe_source_label}"
+                if target_label:
+                    safe_target_label = _require_safe_cypher_identifier(target_label, "target label")
+                    target_pattern = f"b:{safe_target_label}"
             except ValueError as exc:
                 counts["failures"] += 1
                 _append_deadletter({
@@ -413,8 +423,8 @@ def _ingest_via_bolt(data: dict[str, Any], body_fields: dict[str, str]) -> dict[
                 })
                 continue
             cypher = (
-                f"MATCH (a {{name: $source_name}}) "
-                f"MATCH (b {{name: $target_name}}) "
+                f"MATCH ({source_pattern} {{name: $source_name}}) "
+                f"MATCH ({target_pattern} {{name: $target_name}}) "
                 f"MERGE (a)-[r:{safe_rel_type}]->(b)"
             )
             try:

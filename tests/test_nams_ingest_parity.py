@@ -469,3 +469,58 @@ def test_bolt_ingest_rejects_unsafe_cypher_identifiers():
 
     assert counts["failures"] == 2
     session.run.assert_not_called()
+
+
+def test_bolt_ingest_uses_relationship_labels_when_present():
+    ns = _exec_scaffold_template(_RecordingClient())
+
+    class _Session:
+        def __init__(self):
+            self.run = MagicMock()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+    session = _Session()
+    driver = MagicMock()
+    driver.session.return_value = session
+    prior = sys.modules.get("app.context_graph_client")
+    try:
+        cgc_mod = ModuleType("app.context_graph_client")
+        cgc_mod.get_driver = MagicMock(return_value=driver)
+        sys.modules["app.context_graph_client"] = cgc_mod
+
+        counts = ns["_ingest_via_bolt"](
+            {
+                "entities": {},
+                "relationships": [
+                    {
+                        "type": "TREATS",
+                        "source_name": "Mercy General",
+                        "source_label": "Hospital",
+                        "target_name": "Mercy General",
+                        "target_label": "Provider",
+                    }
+                ],
+                "documents": [],
+                "traces": [],
+            },
+            {},
+        )
+    finally:
+        if prior is None:
+            sys.modules.pop("app.context_graph_client", None)
+        else:
+            sys.modules["app.context_graph_client"] = prior
+
+    assert counts["relationships"] == 1
+    assert counts["failures"] == 0
+    session.run.assert_called_once()
+    cypher, params = session.run.call_args.args
+    assert "MATCH (a:Hospital {name: $source_name})" in cypher
+    assert "MATCH (b:Provider {name: $target_name})" in cypher
+    assert "MERGE (a)-[r:TREATS]->(b)" in cypher
+    assert params == {"source_name": "Mercy General", "target_name": "Mercy General"}
