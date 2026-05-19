@@ -358,6 +358,31 @@ class TestIngestDataDispatch:
         # SHOULD have hit graph.execute_write (schema + rels + docs + traces)
         assert bolt_client.graph.execute_write.await_count > 0
 
+    def test_legacy_bolt_signature_still_dispatches(
+        self, tmp_path, healthcare_ontology, monkeypatch
+    ):
+        fixture = _make_fixture_file(tmp_path)
+        import create_context_graph.ingest as ingest_module
+
+        memory_client_ingest = AsyncMock()
+        monkeypatch.setattr(ingest_module, "_ingest_with_memory_client", memory_client_ingest)
+        monkeypatch.setitem(sys.modules, "neo4j_agent_memory", ModuleType("neo4j_agent_memory"))
+
+        ingest_data(
+            fixture,
+            healthcare_ontology,
+            "neo4j://legacy-host:7687",
+            "legacy-user",
+            "legacy-pass",
+        )
+
+        assert memory_client_ingest.await_count == 1
+        assert memory_client_ingest.await_args.args[2:] == (
+            "neo4j://legacy-host:7687",
+            "legacy-user",
+            "legacy-pass",
+        )
+
 
 # ---------------------------------------------------------------------------
 # reset_memory_store dispatch

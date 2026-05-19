@@ -846,18 +846,55 @@ def reset_memory_store(config: "ProjectConfig") -> None:
 # ---------------------------------------------------------------------------
 
 
+def _coerce_ingest_config(
+    ontology: DomainOntology,
+    config_or_neo4j_uri: "ProjectConfig | str",
+    neo4j_username: str | None,
+    neo4j_password: str | None,
+) -> "ProjectConfig":
+    """Accept either a ProjectConfig or the legacy bolt Neo4j credentials."""
+    from create_context_graph.config import ProjectConfig
+
+    if isinstance(config_or_neo4j_uri, ProjectConfig):
+        return config_or_neo4j_uri
+
+    if neo4j_username is None or neo4j_password is None:
+        raise TypeError(
+            "ingest_data() requires neo4j_username and neo4j_password when called "
+            "with the legacy (neo4j_uri, neo4j_username, neo4j_password) signature"
+        )
+
+    return ProjectConfig(
+        project_name=ontology.domain.name,
+        domain=ontology.domain.id,
+        memory_backend="bolt",
+        neo4j_uri=config_or_neo4j_uri,
+        neo4j_username=neo4j_username,
+        neo4j_password=neo4j_password,
+    )
+
+
 def ingest_data(
     fixture_path: Path,
     ontology: DomainOntology,
-    config: "ProjectConfig",
+    config_or_neo4j_uri: "ProjectConfig | str",
+    neo4j_username: str | None = None,
+    neo4j_password: str | None = None,
     body_fields: dict[str, str] | None = None,
 ) -> None:
     """Ingest fixture data into the configured memory backend.
+
+    Accepts either a ``ProjectConfig`` or the legacy bolt-only
+    ``(neo4j_uri, neo4j_username, neo4j_password)`` arguments.
 
     ``body_fields`` is the union of every active connector's ``BODY_FIELDS``
     map; the demo fixture path passes ``None``/``{}`` because pre-generated
     fixtures don't carry connector-specific body conventions.
     """
+    config = _coerce_ingest_config(
+        ontology, config_or_neo4j_uri, neo4j_username, neo4j_password
+    )
+
     if not fixture_path.exists():
         console.print(f"[red]Fixture file not found:[/red] {fixture_path}")
         return
