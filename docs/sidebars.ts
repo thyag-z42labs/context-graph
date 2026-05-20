@@ -55,6 +55,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'explanation/memory-backends',
+        'explanation/ccg-edges',
         'explanation/how-domain-ontologies-work',
         'explanation/three-memory-types',
         'explanation/why-context-graphs',

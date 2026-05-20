@@ -20,7 +20,7 @@ The **POLE+O** entity model is the foundation for all context graphs: **P**erson
 
 - **NAMS by default** -- Generated projects target the hosted [Neo4j Agent Memory Service](https://memory.neo4jlabs.com) out of the box. `--self-hosted` preserves a fully-featured bolt-Neo4j path for offline / demo / regulated-data scenarios.
 - **LiteLLM provider injection** -- The memory layer (entity extraction + embeddings) accepts LiteLLM-style provider strings via `MEMORY_LLM` / `MEMORY_EMBEDDING` env vars. Native adapters resolve first (Anthropic, OpenAI, Bedrock, Vertex AI, SentenceTransformers); everything else (Ollama, Groq, Together, …) routes through LiteLLM.
-- **23 built-in domains** -- Healthcare, financial services, real estate, manufacturing, scientific research, software engineering, and more. Each ships with a complete ontology, agent tools, demo scenarios, and fixture data.
+- **27 built-in domains** -- Healthcare, financial services, real estate, manufacturing, scientific research, software engineering, legal, education, cybersecurity, government, and more. Each ships with a complete ontology, agent tools, demo scenarios, and fixture data.
 - **8 agent frameworks** -- AWS Strands (default), PydanticAI, Claude Agent SDK, OpenAI Agents SDK, LangGraph, CrewAI, Google ADK, and Anthropic Tools.
 - **Multi-turn conversations** -- Every agent uses [neo4j-agent-memory](https://github.com/neo4j-labs/agent-memory) for conversation persistence with automatic entity extraction. Preference detection on the self-hosted path.
 - **Graph-native AI agents** -- Cypher-powered tools (on bolt) or NAMS REST tools (on the hosted backend) for querying entities, relationships, and decision traces. Tool calls stream in real-time with live progress indicators.
@@ -82,6 +82,6 @@ Choose your path based on what you want to do:
 - **[Your First Context Graph App](/docs/tutorials/first-context-graph-app)** -- step-by-step tutorial to create, run, and explore a generated application.
 - **[Why Context Graphs](/docs/explanation/why-context-graphs)** -- understand the conceptual foundation behind graph-based agent memory.
 - **[Three Memory Types](/docs/explanation/three-memory-types)** -- how short-term, long-term, and reasoning memory work together.
-- **[Domain Catalog](/docs/reference/domain-catalog)** -- browse all 22 built-in domains with entity types and sample questions.
+- **[Domain Catalog](/docs/reference/domain-catalog)** -- browse all 27 built-in domains with entity types and sample questions.
 - **[Import SaaS Data](/docs/how-to/import-saas-data)** -- connect your existing tools to populate the knowledge graph.
 - **[Switch Frameworks](/docs/how-to/switch-frameworks)** -- compare and switch between 8 agent frameworks.

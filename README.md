@@ -159,7 +159,7 @@ For native graph edges + GDS + arbitrary Cypher, use `--self-hosted --demo`.
 
 ## Supported Domains
 
-23 industry domains, each with a purpose-built ontology, sample data, agent tools, and demo scenarios:
+27 industry domains, each with a purpose-built ontology, sample data, agent tools, and demo scenarios:
 
 | Domain | Key Entities | Domain | Key Entities |
 |--------|-------------|--------|-------------|
@@ -174,6 +174,9 @@ For native graph edges + GDS + arbitrary Cypher, use `--self-hosted --demo`.
 | Personal Knowledge | Note, Contact, Project, Topic | Golf & Sports Mgmt | Course, Player, Round, Tournament |
 | Digital Twin | Asset, Sensor, Reading, Alert | Software Engineering | Repository, Issue, PR, Deployment |
 | Product Management | Feature, Epic, UserPersona, Metric | Hospitality | Hotel, Room, Reservation, Service |
+| Options Intelligence | Underlying, OptionsContract, Regime, KeyLevel | Legal | Case, Matter, Contract, Filing |
+| Education | Student, Instructor, Course, Assessment | Cybersecurity | Asset, Vulnerability, Alert, Incident |
+| Government | Agency, Program, Policy, Regulation | | |
 
 ```bash
 # List all available domains
@@ -424,7 +427,7 @@ python scripts/e2e_smoke_test.py --domain trip-planning --framework strands --qu
 # Test against NAMS hosted backend (requires MEMORY_API_KEY env)
 python scripts/e2e_smoke_test.py --domain healthcare --framework strands --backend nams --quick
 
-# Test all 23 domains with one framework
+# Test all 27 domains with one framework
 python scripts/e2e_smoke_test.py --all-domains --framework pydanticai --quick
 
 # Full mode (all prompts per scenario, not just first)
@@ -473,8 +476,8 @@ Both packages are published automatically when you push a version tag:
 # 1. Update version in pyproject.toml and npm-wrapper/package.json
 # 2. Commit the version bump (and any CHANGELOG.md update)
 # 3. Tag and push
-git tag v0.12.0
-git push origin v0.12.0
+git tag v0.13.0
+git push origin v0.13.0
 ```
 
 This triggers a GitHub Actions workflow, `release.yml` with jobs:

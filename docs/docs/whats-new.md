@@ -7,7 +7,38 @@ title: "What's New"
 
 Recent additions and changes to create-context-graph and its documentation.
 
-## v0.12.0 (Current) — NAMS-native connector ingest + `ccg-edges` relationship encoding
+## v0.13.0 (Current) — v0.12.0 feedback report fixes
+
+Addresses the May 19, 2026 v0.12.0 feedback report. The headline fix is a runtime bug on the `--self-hosted` connector ingest path that NAMS users never hit; everything else is a cluster of smaller-but-real frontend, backend, and documentation gaps. Test suite: 1,335 passing, 231 skipped (matrix/integration unchanged from baseline).
+
+### Bug Fixes
+
+- **`_ingest_via_bolt()` is now async.** The scaffolded `import_data.py` was calling `with driver.session()` and sync `session.run(...)` on an `AsyncDriver`, so every self-hosted `make import` crashed at runtime. The function is now `async def`, owns its own driver via `async with driver, driver.session()`, and `await`s every `session.run`. Both call sites in `main()` and `_retry_deadletter()` wrap with `asyncio.run(...)`. NAMS users were unaffected; bolt users were broken since v0.12.0.
+- **ChatInterface "done" handler no longer reads stale streaming state.** Streaming entities/preferences moved from `useState` to `useRef`; the `done` SSE branch reads `.current` synchronously so accumulators populated during the same render tick can't be one render behind. Refs reset on done / error / sendMessage / startNewConversation.
+- **`list_documents_nams` pushes the OBJECT filter server-side.** Previously the `skip + limit + 50` over-fetch could be exhausted by unrelated POLE+O entities, silently dropping documents on busy NAMS instances. Dead `template_id` filter at the same call site removed.
+- **`externalInput` useEffect now depends on `loading`.** "Ask about this" clicks landing mid-stream are no longer silently dropped.
+
+### Breaking Changes
+
+- **`--framework maf` removed.** Use `--framework anthropic-tools`. Click rejects `maf` with the standard "Invalid value for '--framework'" error. `FRAMEWORK_ALIASES` and the `resolved_framework` property on `ProjectConfig` are gone — call sites use `config.framework` directly.
+
+### Domains
+
+- **Restored 4 domains as YAML definitions** (count: 23 → 27): `legal`, `education`, `cybersecurity`, `government`. Each ships with a full ontology (12+ entity types, 17+ relationships, 4 decision traces, 5 document templates) plus a deterministic static-fallback fixture and is wired into the scaffold matrix. See [Domain Catalog](/docs/reference/domain-catalog).
+
+### New Documentation
+
+- [How NAMS stores relationships (`ccg-edges`)](/docs/explanation/ccg-edges) — explains the fenced YAML block that encodes relationships into entity descriptions on NAMS, with the migration playbook for when NAMS adds a native `add_relationship` endpoint.
+- [Add a Custom Domain](/docs/how-to/add-custom-domain) extended with the LLM generation pipeline internals, two worked examples (insurance claims, podcast production), and the path from `~/.create-context-graph/custom-domains/` to a permanent upstream contribution.
+
+### Code Quality
+
+- `key={i}` replaced with stable identifiers in 4 locations (`ChatInterface.tsx` prompts/entities/preferences, `DecisionTracePanel.tsx` trace steps).
+- New `tests/test_bolt_ingest_parity.py` (8 tests) and `TestGeneratedImportDataAsyncShape` in `test_generated_project.py` (5 tests) pin the bolt write contract so neither the async shape nor the Cypher sequence can regress silently.
+
+---
+
+## v0.12.0 — NAMS-native connector ingest + `ccg-edges` relationship encoding
 
 This release closes the loop on running SaaS connectors against the NAMS-default scaffold. Previously, `make import` in a NAMS project went through the bolt-Cypher fallback and effectively didn't work; now both the CLI demo-fixture seeder and the generated `import_data.py` share a NAMS-native write shape, pinned by a contract test.
 
