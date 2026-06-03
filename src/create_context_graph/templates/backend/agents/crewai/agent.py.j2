@@ -9,10 +9,8 @@ import os
 import asyncio
 
 from crewai import Agent, Crew, Task
-from crewai import LLM
 from crewai.tools import tool
 
-from app.agent_provider import anthropic_model, fallback_to_legacy_enabled, openai_model, openrouter_model, resolve_agent_provider
 from app.config import settings
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
@@ -103,44 +101,19 @@ def get_graph_schema() -> str:
     return json.dumps(result, default=str)
 {% endraw %}
 
-def _build_llm(provider: str):
-    if provider == "openrouter":
-        return LLM(
-            model=openrouter_model(),
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_api_base,
-        )
-    if provider == "openai":
-        return LLM(
-            model=openai_model(),
-            api_key=settings.openai_api_key,
-        )
-    return LLM(model=f"anthropic/{anthropic_model()}")
-
-
-def _build_agent(provider: str) -> Agent:
-    return Agent(
-        role="{{ domain.name }} Analyst",
-        goal="Help users analyze and explore the {{ domain.name | lower }} knowledge graph",
-        backstory=SYSTEM_PROMPT,
-        tools=[
+agent = Agent(
+    role="{{ domain.name }} Analyst",
+    goal="Help users analyze and explore the {{ domain.name | lower }} knowledge graph",
+    backstory=SYSTEM_PROMPT,
+    tools=[
 {% for tool in agent_tools %}
-            {{ tool.name }},
+        {{ tool.name }},
 {% endfor %}
-            run_cypher,
-            get_graph_schema,
-        ],
-        llm=_build_llm(provider),
-        verbose=False,
-    )
-
-
-agent_provider = resolve_agent_provider("anthropic")
-agent = _build_agent(agent_provider)
-legacy_agent = (
-    _build_agent("anthropic")
-    if agent_provider == "openrouter" and fallback_to_legacy_enabled()
-    else None
+        run_cypher,
+        get_graph_schema,
+    ],
+    llm="anthropic/claude-sonnet-4-20250514",
+    verbose=False,
 )
 
 {% raw %}
@@ -170,36 +143,20 @@ async def handle_message(message: str, session_id: str | None = None) -> dict:
     else:
         task_description = message
 
-    active_agent = agent
     task = Task(
         description=task_description,
         expected_output="A helpful response with relevant data from the knowledge graph",
-        agent=active_agent,
+        agent=agent,
     )
 
-    crew = Crew(agents=[active_agent], tasks=[task], verbose=False)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False)
     _capture_loop()
     logger.info("CrewAI: starting crew.kickoff for message: %s", message[:100])
     try:
-        try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(crew.kickoff),
-                timeout=60.0,
-            )
-        except Exception as e:
-            if legacy_agent is None:
-                raise
-            logger.warning("OpenRouter CrewAI call failed; falling back to Anthropic: %s", e)
-            task = Task(
-                description=task_description,
-                expected_output="A helpful response with relevant data from the knowledge graph",
-                agent=legacy_agent,
-            )
-            crew = Crew(agents=[legacy_agent], tasks=[task], verbose=False)
-            result = await asyncio.wait_for(
-                asyncio.to_thread(crew.kickoff),
-                timeout=60.0,
-            )
+        result = await asyncio.wait_for(
+            asyncio.to_thread(crew.kickoff),
+            timeout=60.0,
+        )
         response_text = str(result)
         logger.info("CrewAI: completed successfully, response length: %d", len(response_text))
     except asyncio.TimeoutError:
@@ -251,13 +208,12 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
     else:
         task_description = message
 
-    active_agent = agent
     task = Task(
         description=task_description,
         expected_output="A helpful response with relevant data from the knowledge graph",
-        agent=active_agent,
+        agent=agent,
     )
-    crew = Crew(agents=[active_agent], tasks=[task], verbose=False, stream=True)
+    crew = Crew(agents=[agent], tasks=[task], verbose=False, stream=True)
     _capture_loop()
 
     full_text_parts: list[str] = []
@@ -272,25 +228,10 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
 
     response_text = ""
     try:
-        try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(crew.kickoff),
-                timeout=60.0,
-            )
-        except Exception as e:
-            if legacy_agent is None or full_text_parts:
-                raise
-            logger.warning("OpenRouter CrewAI stream failed; falling back to Anthropic: %s", e)
-            task = Task(
-                description=task_description,
-                expected_output="A helpful response with relevant data from the knowledge graph",
-                agent=legacy_agent,
-            )
-            crew = Crew(agents=[legacy_agent], tasks=[task], verbose=False, stream=True)
-            result = await asyncio.wait_for(
-                asyncio.to_thread(crew.kickoff),
-                timeout=60.0,
-            )
+        result = await asyncio.wait_for(
+            asyncio.to_thread(crew.kickoff),
+            timeout=60.0,
+        )
         # Prefer the streamed concatenation; fall back to the crew's
         # final output (str(result)) if no stream chunks were captured —
         # for example, when the LLM provider didn't honor stream=True.

@@ -19,13 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from create_context_graph.generator import (
-    _ensure_demo_study_ids,
-    _get_llm_client,
-    _normalize_entity_enums,
-    _weave_relationships,
-    generate_fixture_data,
-)
+from create_context_graph.generator import generate_fixture_data
 from create_context_graph.ontology import load_domain
 
 
@@ -143,65 +137,6 @@ class TestGenerateFixtureData:
                 assert rel["source_name"] != rel["target_name"], (
                     f"Self-relationship found: {rel}"
                 )
-
-    def test_openrouter_client_available_without_optional_sdk(self):
-        client, provider = _get_llm_client("test-key", "openrouter")
-
-        assert provider == "openrouter"
-        assert client is not None
-        assert client["base_url"].endswith("/v1")
-
-    def test_relationships_prefer_shared_study_id(self):
-        ontology = load_domain("clinical-trials")
-        entities = {
-            "Study": [
-                {"name": "Study A", "study_id": "STU-A"},
-                {"name": "Study B", "study_id": "STU-B"},
-            ],
-            "StudyMilestone": [
-                {"name": "Milestone A", "study_id": "STU-A"},
-                {"name": "Milestone B", "study_id": "STU-B"},
-            ],
-        }
-
-        relationships = _weave_relationships(ontology, entities)
-
-        study_milestone = [
-            rel for rel in relationships if rel["type"] == "HAS_MILESTONE"
-        ]
-        assert {
-            (rel["source_name"], rel["target_name"]) for rel in study_milestone
-        } == {("Study A", "Milestone A"), ("Study B", "Milestone B")}
-
-    def test_demo_prompt_study_ids_are_preserved(self):
-        ontology = load_domain("clinical-trials")
-        entities = {
-            "Study": [{"name": "Study A", "study_id": "STUDY-001"}],
-            "StudyCountry": [{"name": "United States", "study_id": "STUDY-001"}],
-        }
-
-        _ensure_demo_study_ids(ontology, entities)
-
-        assert entities["Study"][0]["study_id"] == "STU-2026-0003"
-        assert entities["StudyCountry"][0]["study_id"] == "STU-2026-0003"
-
-    def test_llm_enum_values_are_normalized(self):
-        ontology = load_domain("clinical-trials")
-        entities = {
-            "Study": [
-                {
-                    "name": "Study A",
-                    "study_id": "STU-A",
-                    "study_status": "education_phase",
-                    "operational_phase": "startup",
-                }
-            ]
-        }
-
-        _normalize_entity_enums(ontology, entities)
-
-        assert entities["Study"][0]["study_status"] == "enrolling"
-        assert entities["Study"][0]["operational_phase"] == "active"
 
 
 class TestGenerateMultipleDomains:

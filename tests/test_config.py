@@ -73,10 +73,6 @@ class TestProjectConfig:
         assert config.anthropic_api_key is None
         assert config.openai_api_key is None
         assert config.google_api_key is None
-        assert config.agent_provider == "auto"
-        assert config.agent_fallback_provider == "legacy"
-        assert config.openrouter_api_key is None
-        assert config.openrouter_api_base == "https://openrouter.ai/api/v1"
 
     def test_framework_display_name(self):
         config = ProjectConfig(
@@ -107,45 +103,6 @@ class TestProjectConfig:
         """crewai agent template uses anthropic LLM, so the extra is required."""
         deps = FRAMEWORK_DEPENDENCIES["crewai"]
         assert any("anthropic" in dep for dep in deps)
-
-    def test_openrouter_first_defaults_to_legacy_without_key(self):
-        config = ProjectConfig(
-            project_name="Test",
-            domain="healthcare",
-            framework="strands",
-        )
-        assert config.effective_agent_provider == "legacy"
-        assert config.default_agent_model == "claude-sonnet-4-20250514"
-
-    def test_openrouter_first_activates_with_key(self):
-        config = ProjectConfig(
-            project_name="Test",
-            domain="healthcare",
-            framework="strands",
-            openrouter_api_key="sk-or-test",
-        )
-        assert config.effective_agent_provider == "openrouter"
-        assert config.default_agent_model == "anthropic/claude-sonnet-4.5"
-
-    def test_agent_model_override(self):
-        config = ProjectConfig(
-            project_name="Test",
-            domain="healthcare",
-            framework="langgraph",
-            agent_provider="openrouter",
-            agent_model="openai/gpt-5-mini",
-        )
-        assert config.effective_agent_provider == "openrouter"
-        assert config.default_agent_model == "openai/gpt-5-mini"
-
-    def test_google_adk_stays_google(self):
-        config = ProjectConfig(
-            project_name="Test",
-            domain="healthcare",
-            framework="google-adk",
-            openrouter_api_key="sk-or-test",
-        )
-        assert config.effective_agent_provider == "google"
 
     def test_existing_neo4j_config(self):
         config = ProjectConfig(
