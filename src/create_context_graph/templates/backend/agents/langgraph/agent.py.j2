@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+from langchain_openrouter import ChatOpenRouter
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 
 from app.config import settings
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
+from app.agent_provider import (
+    anthropic_model,
+    fallback_to_legacy_enabled,
+    openai_model,
+    openrouter_model,
+    resolve_agent_provider,
+)
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """{{ system_prompt }}
@@ -70,12 +83,38 @@ TOOLS = [
 ]
 
 {% raw %}
-model = ChatAnthropic(
-    model="claude-sonnet-4-20250514",
-    api_key=settings.anthropic_api_key,
-)
+def _build_model(provider: str):
+    """Build the LangChain chat model for the resolved provider."""
+    if provider == "openrouter":
+        if settings.openrouter_api_key:
+            os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
+        if settings.openrouter_app_url:
+            os.environ["OPENROUTER_APP_URL"] = settings.openrouter_app_url
+        if settings.openrouter_app_title:
+            os.environ["OPENROUTER_APP_TITLE"] = settings.openrouter_app_title
+        return ChatOpenRouter(
+            model=openrouter_model(),
+            app_url=settings.openrouter_app_url or None,
+            app_title=settings.openrouter_app_title or None,
+        )
+    if provider == "openai":
+        return ChatOpenAI(
+            model=openai_model(),
+            api_key=settings.openai_api_key,
+        )
+    return ChatAnthropic(
+        model=anthropic_model(),
+        api_key=settings.anthropic_api_key,
+    )
 
-graph = create_react_agent(model, TOOLS, prompt=SYSTEM_PROMPT)
+
+agent_provider = resolve_agent_provider("anthropic")
+graph = create_react_agent(_build_model(agent_provider), TOOLS, prompt=SYSTEM_PROMPT)
+legacy_graph = (
+    create_react_agent(_build_model("anthropic"), TOOLS, prompt=SYSTEM_PROMPT)
+    if agent_provider == "openrouter" and fallback_to_legacy_enabled()
+    else None
+)
 
 
 # ---------------------------------------------------------------------------
@@ -101,10 +140,19 @@ async def handle_message(message: str, session_id: str | None = None) -> dict:
         elif msg["role"] == "assistant":
             history_messages.append(AIMessage(content=msg["content"]))
 
-    result = await graph.ainvoke(
-        {"messages": history_messages + [HumanMessage(content=message)]},
-        config={"configurable": {"thread_id": session_id}},
-    )
+    try:
+        result = await graph.ainvoke(
+            {"messages": history_messages + [HumanMessage(content=message)]},
+            config={"configurable": {"thread_id": session_id}},
+        )
+    except Exception as e:
+        if legacy_graph is None:
+            raise
+        logger.warning("OpenRouter LangGraph call failed; falling back to Anthropic: %s", e)
+        result = await legacy_graph.ainvoke(
+            {"messages": history_messages + [HumanMessage(content=message)]},
+            config={"configurable": {"thread_id": session_id}},
+        )
 
     # Extract the last AI message
     ai_messages = [m for m in result["messages"] if hasattr(m, "content") and m.type == "ai"]
@@ -143,28 +191,38 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
             history_messages.append(AIMessage(content=msg["content"]))
 
     response_text = ""
-    async for event in graph.astream_events(
-        {"messages": history_messages + [HumanMessage(content=message)]},
-        config={"configurable": {"thread_id": session_id}},
-        version="v2",
-    ):
-        kind = event.get("event", "")
-        if kind == "on_chat_model_stream":
-            chunk = event.get("data", {}).get("chunk")
-            if chunk and hasattr(chunk, "content"):
-                text = ""
-                if isinstance(chunk.content, str):
-                    text = chunk.content
-                elif isinstance(chunk.content, list):
-                    text = "".join(
-                        block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
-                        for block in chunk.content
-                        if (isinstance(block, dict) and block.get("type") == "text")
-                        or (hasattr(block, "type") and getattr(block, "type", None) == "text")
-                    )
-                if text:
-                    collector.emit_text_delta(text)
-                    response_text += text
+    async def _stream_from(active_graph):
+        nonlocal response_text
+        async for event in active_graph.astream_events(
+            {"messages": history_messages + [HumanMessage(content=message)]},
+            config={"configurable": {"thread_id": session_id}},
+            version="v2",
+        ):
+            kind = event.get("event", "")
+            if kind == "on_chat_model_stream":
+                chunk = event.get("data", {}).get("chunk")
+                if chunk and hasattr(chunk, "content"):
+                    text = ""
+                    if isinstance(chunk.content, str):
+                        text = chunk.content
+                    elif isinstance(chunk.content, list):
+                        text = "".join(
+                            block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                            for block in chunk.content
+                            if (isinstance(block, dict) and block.get("type") == "text")
+                            or (hasattr(block, "type") and getattr(block, "type", None) == "text")
+                        )
+                    if text:
+                        collector.emit_text_delta(text)
+                        response_text += text
+
+    try:
+        await _stream_from(graph)
+    except Exception as e:
+        if legacy_graph is None or response_text:
+            raise
+        logger.warning("OpenRouter LangGraph stream failed; falling back to Anthropic: %s", e)
+        await _stream_from(legacy_graph)
 
     if not response_text.strip():
         response_text = "I searched the knowledge graph but couldn't find relevant results for your query. Could you try rephrasing your question?"

@@ -118,6 +118,20 @@ class TestProjectRenderer:
         assert (tmp_output / "cypher" / "schema.cypher").exists()
         assert (tmp_output / "cypher" / "gds_projections.cypher").exists()
 
+    def test_schema_target_connects_before_applying_schema(self, financial_config, tmp_output):
+        ontology = load_domain(financial_config.domain)
+        renderer = ProjectRenderer(financial_config, ontology)
+        renderer.render(tmp_output)
+
+        makefile = (tmp_output / "Makefile").read_text()
+        generate_data = (tmp_output / "backend" / "scripts" / "generate_data.py").read_text()
+        schema = (tmp_output / "cypher" / "schema.cypher").read_text()
+
+        assert "schema_only" in makefile
+        assert "async def schema_only()" in generate_data
+        assert "await connect_neo4j()" in generate_data
+        assert "generated; dimensions" not in schema
+
     def test_render_creates_data(self, financial_config, tmp_output):
         ontology = load_domain(financial_config.domain)
         renderer = ProjectRenderer(financial_config, ontology)
@@ -695,6 +709,95 @@ class TestAllFrameworksRender:
             assert pkg_name in pyproject, (
                 f"pyproject.toml for {framework} missing dependency '{pkg_name}'"
             )
+
+    @pytest.mark.parametrize("framework", [
+        "pydanticai",
+        "claude-agent-sdk",
+        "openai-agents",
+        "langgraph",
+        "crewai",
+        "strands",
+        "anthropic-tools",
+    ])
+    def test_openrouter_agent_provider_wiring(self, framework, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="OpenRouter Test",
+            domain="financial-services",
+            framework=framework,
+            openrouter_api_key="sk-or-test",
+        )
+        out = tmp_path / f"openrouter-{framework}"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        agent = (out / "backend" / "app" / "agent.py").read_text()
+        helper = (out / "backend" / "app" / "agent_provider.py").read_text()
+        env_content = (out / ".env").read_text()
+        pyproject = (out / "backend" / "pyproject.toml").read_text()
+
+        assert "openrouter" in agent.lower()
+        assert "resolve_agent_provider" in agent
+        assert "fallback" in agent.lower()
+        assert "OPENROUTER_API_KEY=sk-or-test" in env_content
+        assert "httpx>=0.27" in pyproject
+        assert "run_openrouter_tool_loop" in helper
+
+    def test_pydanticai_openrouter_fallback_requires_anthropic_key(self, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="PydanticAI OpenRouter",
+            domain="financial-services",
+            framework="pydanticai",
+            openrouter_api_key="sk-or-test",
+        )
+        out = tmp_path / "pydanticai-openrouter"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        agent = (out / "backend" / "app" / "agent.py").read_text()
+
+        assert 'resolve_agent_provider("anthropic")' in agent
+        assert "and settings.anthropic_api_key" in agent
+
+    def test_langgraph_openrouter_dependencies(self, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="LangGraph OpenRouter",
+            domain="financial-services",
+            framework="langgraph",
+            openrouter_api_key="sk-or-test",
+        )
+        out = tmp_path / "langgraph-openrouter"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        pyproject = (out / "backend" / "pyproject.toml").read_text()
+        agent = (out / "backend" / "app" / "agent.py").read_text()
+        assert "langchain-openrouter" in pyproject
+        assert "langchain-anthropic" in pyproject
+        assert "ChatOpenRouter" in agent
+        assert "ChatAnthropic" in agent
+
+    @pytest.mark.parametrize("framework", ["pydanticai", "langgraph", "openai-agents", "crewai", "strands"])
+    def test_explicit_openai_agent_provider_wiring(self, framework, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="OpenAI Provider Test",
+            domain="financial-services",
+            framework=framework,
+            agent_provider="openai",
+            openai_api_key="sk-test-openai",
+        )
+        out = tmp_path / f"openai-provider-{framework}"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        source = (out / "backend" / "app" / "agent.py").read_text()
+        compile(source, str(out / "backend" / "app" / "agent.py"), "exec")
+        assert "openai_model" in source or "ChatOpenAI" in source
+        if framework in {"crewai", "strands"}:
+            assert "settings.openai_api_key" in source
 
 
 class TestCustomDomainRender:

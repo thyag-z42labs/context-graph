@@ -339,6 +339,47 @@ class TestV060CLIFlags:
         env_content = (out / ".env").read_text()
         assert "OPENAI_API_KEY=sk-test-openai" in env_content
 
+    def test_openrouter_agent_flags_flow_to_env(self, runner, tmp_path):
+        """OpenRouter agent provider flags should flow through to rendered .env."""
+        out = tmp_path / "orouter-test"
+        result = runner.invoke(main, [
+            "orouter-test",
+            "--domain", "healthcare",
+            "--framework", "langgraph",
+            "--agent-provider", "openrouter",
+            "--agent-model", "openai/gpt-5-mini",
+            "--agent-fallback-provider", "none",
+            "--openrouter-api-key", "sk-or-test",
+            "--openrouter-app-url", "https://example.test",
+            "--openrouter-app-title", "Context Graph Test",
+            "--output-dir", str(out),
+        ])
+        assert result.exit_code == 0, result.output
+        env_content = (out / ".env").read_text()
+        assert "AGENT_PROVIDER=openrouter" in env_content
+        assert "AGENT_MODEL=openai/gpt-5-mini" in env_content
+        assert "AGENT_FALLBACK_PROVIDER=none" in env_content
+        assert "OPENROUTER_API_KEY=sk-or-test" in env_content
+        assert "OPENROUTER_APP_URL=https://example.test" in env_content
+        assert "OPENROUTER_APP_TITLE=Context Graph Test" in env_content
+
+    def test_dry_run_prints_agent_llm(self, runner, tmp_path):
+        out = tmp_path / "orouter-dry"
+        result = runner.invoke(main, [
+            "orouter-dry",
+            "--domain", "healthcare",
+            "--framework", "strands",
+            "--agent-provider", "openrouter",
+            "--agent-model", "anthropic/claude-sonnet-4.5",
+            "--openrouter-api-key", "sk-or-test",
+            "--dry-run",
+            "--output-dir", str(out),
+        ])
+        assert result.exit_code == 0, result.output
+        assert "Agent LLM" in result.output
+        assert "provider=openrouter" in result.output
+        assert "anthropic/claude-sonnet-4.5" in result.output
+
 
 class TestLinearConnectorCLI:
     """Tests for --connector linear CLI integration."""

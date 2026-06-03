@@ -38,8 +38,11 @@ from rich.panel import Panel
 from rich.table import Table
 
 from create_context_graph.config import (
+    AGENT_FALLBACK_PROVIDERS,
+    AGENT_PROVIDERS,
     DEFAULT_FRAMEWORK,
     DEFAULT_NAMS_ENDPOINT,
+    DEFAULT_OPENROUTER_API_BASE,
     FRAMEWORK_DISPLAY_NAMES,
     NAMS_SIGNUP_URL,
     SUPPORTED_FRAMEWORKS,
@@ -411,6 +414,13 @@ def _prompt_advanced(*, is_nams: bool, framework: str) -> dict:
         "anthropic_api_key": None,
         "openai_api_key": None,
         "google_api_key": None,
+        "agent_provider": "auto",
+        "agent_model": None,
+        "agent_fallback_provider": "legacy",
+        "openrouter_api_key": None,
+        "openrouter_api_base": DEFAULT_OPENROUTER_API_BASE,
+        "openrouter_app_url": None,
+        "openrouter_app_title": None,
     }
 
     if not customize:
@@ -474,6 +484,58 @@ def _prompt_advanced(*, is_nams: bool, framework: str) -> dict:
             default="",
         ).ask()
 
+    agent_provider = _ask_or_abort(
+        questionary.select(
+            "Agent provider preference?",
+            choices=[
+                questionary.Choice("Auto (OpenRouter if key is set, otherwise legacy)", value="auto"),
+                questionary.Choice("OpenRouter", value="openrouter"),
+                questionary.Choice("Legacy framework provider", value="legacy"),
+                questionary.Choice("Anthropic", value="anthropic"),
+                questionary.Choice("OpenAI", value="openai"),
+                questionary.Choice("Google", value="google"),
+            ],
+        ).ask(),
+        "agent provider",
+    )
+    if agent_provider not in AGENT_PROVIDERS:
+        agent_provider = "auto"
+
+    agent_model = questionary.text(
+        "Agent model override (optional):",
+        default="",
+    ).ask()
+
+    agent_fallback_provider = _ask_or_abort(
+        questionary.select(
+            "Fallback if preferred agent provider fails?",
+            choices=[
+                questionary.Choice("Legacy provider", value="legacy"),
+                questionary.Choice("No fallback", value="none"),
+            ],
+        ).ask(),
+        "agent fallback",
+    )
+    if agent_fallback_provider not in AGENT_FALLBACK_PROVIDERS:
+        agent_fallback_provider = "legacy"
+
+    openrouter_api_key = questionary.password(
+        "OpenRouter API key (optional — preferred when set):",
+        default="",
+    ).ask()
+    openrouter_api_base = questionary.text(
+        "OpenRouter API base URL:",
+        default=DEFAULT_OPENROUTER_API_BASE,
+    ).ask()
+    openrouter_app_url = questionary.text(
+        "OpenRouter app URL for attribution (optional):",
+        default="",
+    ).ask()
+    openrouter_app_title = questionary.text(
+        "OpenRouter app title for attribution (optional):",
+        default="",
+    ).ask()
+
     return {
         "with_mcp": bool(with_mcp),
         "mcp_profile": mcp_profile,
@@ -482,6 +544,13 @@ def _prompt_advanced(*, is_nams: bool, framework: str) -> dict:
         "anthropic_api_key": anthropic_api_key or None,
         "openai_api_key": openai_api_key or None,
         "google_api_key": google_api_key or None,
+        "agent_provider": agent_provider,
+        "agent_model": agent_model or None,
+        "agent_fallback_provider": agent_fallback_provider,
+        "openrouter_api_key": openrouter_api_key or None,
+        "openrouter_api_base": openrouter_api_base or DEFAULT_OPENROUTER_API_BASE,
+        "openrouter_app_url": openrouter_app_url or None,
+        "openrouter_app_title": openrouter_app_title or None,
     }
 
 
@@ -531,6 +600,13 @@ def run_wizard(*, self_hosted: bool = False) -> ProjectConfig:
         anthropic_api_key=advanced["anthropic_api_key"] or custom_anthropic_key,
         openai_api_key=advanced["openai_api_key"],
         google_api_key=advanced["google_api_key"],
+        agent_provider=advanced["agent_provider"],
+        agent_model=advanced["agent_model"],
+        agent_fallback_provider=advanced["agent_fallback_provider"],
+        openrouter_api_key=advanced["openrouter_api_key"],
+        openrouter_api_base=advanced["openrouter_api_base"],
+        openrouter_app_url=advanced["openrouter_app_url"],
+        openrouter_app_title=advanced["openrouter_app_title"],
         generate_data=data_source == "demo",
         custom_domain_yaml=custom_domain_yaml,
         saas_connectors=connectors,
@@ -557,6 +633,7 @@ def _show_summary(config: ProjectConfig) -> None:
     table.add_row("Project", config.project_name)
     table.add_row("Domain", config.domain)
     table.add_row("Framework", config.framework_display_name)
+    table.add_row("Agent provider", f"{config.agent_provider} ({config.default_agent_model})")
     if config.is_nams:
         table.add_row("Memory", f"NAMS ({config.nams_endpoint})")
     else:
@@ -577,6 +654,7 @@ def _show_summary(config: ProjectConfig) -> None:
     table.add_row("NAMS key" if config.is_nams else "—", "***" if config.nams_api_key else "(not set)")
     table.add_row("Anthropic key", "***" if config.anthropic_api_key else "(not set — set in .env later)")
     table.add_row("OpenAI key", "***" if config.openai_api_key else "(not set)")
+    table.add_row("OpenRouter key", "***" if config.openrouter_api_key else "(not set)")
     if config.google_api_key or config.framework == "google-adk":
         table.add_row("Google key", "***" if config.google_api_key else "(not set)")
 

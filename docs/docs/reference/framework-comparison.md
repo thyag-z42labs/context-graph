@@ -14,13 +14,13 @@ Start with **PydanticAI** -- it offers the best combination of type safety, full
 
 | Framework | LLM Provider | Streaming | Async | Performance Notes |
 |---|---|---|---|---|
-| **PydanticAI** | Anthropic (configurable) | Full (text + tools) | Native async | Fast startup, type-safe tool definitions. Low overhead. |
-| **Claude Agent SDK** | Anthropic | Full (text + tools) | Native async | Minimal abstraction over Anthropic API. Lowest latency to first token. |
-| **OpenAI Agents SDK** | OpenAI | Full (text + tools) | Native async | Requires `OPENAI_API_KEY`. Text-matching tools need specific search terms. |
-| **LangGraph** | Anthropic (configurable) | Full (text + tools) | Native async | Slightly higher startup (graph compilation). Rich observability hooks. |
-| **Anthropic Tools** | Anthropic | Full (text + tools) | Native async | No framework dependency. Direct API control over agentic loop. |
-| **Strands** | Anthropic | Full (text + tools) | Thread-bridged | Sync framework in worker thread; text streams via `agent.stream_async()`. |
-| **CrewAI** | Anthropic | Full (text + tools) | Thread-bridged | Higher startup (multi-agent init); text streams via `LLMStreamChunkEvent`. Needs `crewai[anthropic]`. |
+| **PydanticAI** | OpenRouter first; Anthropic fallback | Full (text + tools) | Native async | Fast startup, type-safe tool definitions. Low overhead. |
+| **Claude Agent SDK** | OpenRouter first; Anthropic fallback | Full (text + tools) | Native async | Direct Anthropic loop retained as fallback. |
+| **OpenAI Agents SDK** | OpenRouter first; OpenAI fallback | Full (text + tools) | Native async | Uses OpenAI-compatible chat completions for OpenRouter. |
+| **LangGraph** | OpenRouter first; Anthropic fallback | Full (text + tools) | Native async | Slightly higher startup (graph compilation). Rich observability hooks. |
+| **Anthropic Tools** | OpenRouter first; Anthropic fallback | Full (text + tools) | Native async | Direct OpenRouter tool loop with Anthropic SDK fallback. |
+| **Strands** | OpenRouter first; Anthropic fallback | Full (text + tools) | Thread-bridged | Sync framework in worker thread; text streams via `agent.stream_async()`. |
+| **CrewAI** | OpenRouter first; Anthropic fallback | Full (text + tools) | Thread-bridged | Higher startup (multi-agent init); text streams via `LLMStreamChunkEvent`. |
 | **Google ADK** | Google Gemini | Full (text + tools) | Native async | Requires `GOOGLE_API_KEY`. Uses `nest_asyncio` for reentrant async. |
 
 ## Choosing a Framework
@@ -64,8 +64,8 @@ Most frameworks use native `async/await`. CrewAI and Strands are synchronous and
 | PydanticAI | `pydantic-ai>=0.1` |
 | Claude Agent SDK | `claude-agent-sdk>=0.1`, `anthropic>=0.30` |
 | OpenAI Agents SDK | `openai-agents>=0.1` |
-| LangGraph | `langgraph>=0.1`, `langchain-anthropic>=0.3` |
-| CrewAI | `crewai[anthropic]>=0.1` |
-| Strands | `strands-agents[anthropic]>=0.1` |
+| LangGraph | `langgraph>=0.1`, `langchain-anthropic>=0.3`, `langchain-openrouter>=0.2`, `langchain-openai>=0.3` |
+| CrewAI | `crewai[anthropic,litellm]>=0.1` |
+| Strands | `strands-agents[anthropic,openai]>=0.1` |
 | Google ADK | `google-adk>=0.1`, `nest-asyncio>=1.5` |
 | Anthropic Tools | `anthropic>=0.30` |

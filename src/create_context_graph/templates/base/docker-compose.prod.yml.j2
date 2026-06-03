@@ -31,6 +31,13 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
+      AGENT_PROVIDER: ${AGENT_PROVIDER:-auto}
+      AGENT_MODEL: ${AGENT_MODEL:-}
+      AGENT_FALLBACK_PROVIDER: ${AGENT_FALLBACK_PROVIDER:-legacy}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_API_BASE: ${OPENROUTER_API_BASE:-https://openrouter.ai/api/v1}
+      OPENROUTER_APP_URL: ${OPENROUTER_APP_URL:-}
+      OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE:-{{ project_name }}}
 {% if 'anthropic' in framework or framework == 'pydanticai' or framework == 'claude-agent-sdk' %}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
 {% endif %}

@@ -25,8 +25,11 @@ Five-stage pipeline:
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +40,12 @@ from create_context_graph.ontology import DomainOntology
 
 console = Console()
 
+DEFAULT_GENERATION_MODELS = {
+    "anthropic": "claude-sonnet-4-20250514",
+    "openai": "gpt-4o-mini",
+    "openrouter": "anthropic/claude-sonnet-4.5",
+}
+
 # ---------------------------------------------------------------------------
 # LLM client abstraction
 # ---------------------------------------------------------------------------
@@ -44,6 +53,7 @@ console = Console()
 
 def _get_llm_client(api_key: str, provider: str = "anthropic"):
     """Get an LLM client for generation."""
+    provider = (provider or "anthropic").lower()
     if provider == "anthropic":
         try:
             import anthropic
@@ -51,14 +61,109 @@ def _get_llm_client(api_key: str, provider: str = "anthropic"):
         except ImportError:
             pass
 
+    if provider == "openrouter":
+        return (
+            {
+                "api_key": api_key,
+                "base_url": os.getenv(
+                    "OPENROUTER_API_BASE", "https://openrouter.ai/api/v1"
+                ),
+            },
+            "openrouter",
+        )
+
     if provider == "openai" or provider != "anthropic":
         try:
             import openai
             return openai.OpenAI(api_key=api_key), "openai"
         except ImportError:
-            pass
+            return (
+                {"api_key": api_key, "base_url": "https://api.openai.com/v1"},
+                "openai",
+            )
 
     return None, None
+
+
+def _openai_compatible_completion(
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    messages: list[dict[str, str]],
+    max_tokens: int,
+) -> tuple[str, str | None]:
+    """Call an OpenAI-compatible chat/completions endpoint without SDK deps."""
+    payload = json.dumps({
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"LLM generation request failed: HTTP {exc.code} {detail}") from exc
+
+    choice = (data.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
+    return message.get("content") or "", choice.get("finish_reason")
+
+
+def _env_key_for_provider(provider: str) -> str:
+    provider = (provider or "").lower()
+    if provider == "openrouter":
+        return "OPENROUTER_API_KEY"
+    if provider == "openai":
+        return "OPENAI_API_KEY"
+    return "ANTHROPIC_API_KEY"
+
+
+def _resolve_generation_provider(provider: str | None = None) -> str:
+    requested = (
+        provider
+        or os.getenv("FIXTURE_GENERATION_PROVIDER")
+        or os.getenv("GENERATION_PROVIDER")
+        or "auto"
+    ).lower()
+    if requested != "auto":
+        return requested
+    if os.getenv("OPENROUTER_API_KEY"):
+        return "openrouter"
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    return "anthropic"
+
+
+def _resolve_generation_model(
+    provider: str,
+    *,
+    model: str | None = None,
+    purpose: str = "GENERATION",
+) -> str:
+    provider = (provider or "anthropic").lower()
+    provider_key = provider.upper().replace("-", "_")
+    purpose_key = purpose.upper()
+    return (
+        model
+        or os.getenv(f"{purpose_key}_MODEL")
+        or os.getenv(f"{provider_key}_{purpose_key}_MODEL")
+        or os.getenv("GENERATION_MODEL")
+        or os.getenv(f"{provider_key}_GENERATION_MODEL")
+        or DEFAULT_GENERATION_MODELS.get(provider, DEFAULT_GENERATION_MODELS["openai"])
+    )
 
 
 def _llm_generate(
@@ -67,7 +172,9 @@ def _llm_generate(
     prompt: str,
     system: str = "",
     *,
+    model: str | None = None,
     max_tokens: int = 4096,
+    purpose: str = "GENERATION",
     return_stop_reason: bool = False,
 ):
     """Generate text using the LLM client.
@@ -80,39 +187,64 @@ def _llm_generate(
     """
     text = ""
     stop_reason: str | None = None
+    resolved_model = _resolve_generation_model(provider, model=model, purpose=purpose)
 
     if provider == "anthropic":
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=resolved_model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.content[0].text
         stop_reason = getattr(response, "stop_reason", None)
-    elif provider == "openai":
+    elif provider in {"openai", "openrouter"}:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            max_tokens=max_tokens,
-        )
-        choice = response.choices[0]
-        text = choice.message.content or ""
-        stop_reason = getattr(choice, "finish_reason", None)
+        if isinstance(client, dict):
+            text, stop_reason = _openai_compatible_completion(
+                api_key=client["api_key"],
+                base_url=client["base_url"],
+                model=resolved_model,
+                messages=messages,
+                max_tokens=max_tokens,
+            )
+        else:
+            response = client.chat.completions.create(
+                model=resolved_model,
+                messages=messages,
+                max_tokens=max_tokens,
+            )
+            choice = response.choices[0]
+            text = choice.message.content or ""
+            stop_reason = getattr(choice, "finish_reason", None)
 
     if return_stop_reason:
         return text, stop_reason
     return text
 
 
-def _llm_generate_json(client, provider: str, prompt: str, system: str = "") -> Any:
+def _llm_generate_json(
+    client,
+    provider: str,
+    prompt: str,
+    system: str = "",
+    *,
+    purpose: str = "GENERATION",
+    max_tokens: int = 4096,
+) -> Any:
     """Generate JSON using the LLM client."""
     full_prompt = prompt + "\n\nRespond with valid JSON only. No markdown code fences."
-    text = _llm_generate(client, provider, full_prompt, system)
+    text = _llm_generate(
+        client,
+        provider,
+        full_prompt,
+        system,
+        purpose=purpose,
+        max_tokens=max_tokens,
+    )
     # Strip markdown fences if present
     text = text.strip()
     if text.startswith("```"):
@@ -128,39 +260,165 @@ def _llm_generate_json(client, provider: str, prompt: str, system: str = "") -> 
 # ---------------------------------------------------------------------------
 
 
+def _seed_entities_coherent_llm(
+    ontology: DomainOntology, client, provider: str
+) -> dict[str, list[dict]] | None:
+    """Generate all entity labels in one LLM call so shared keys line up."""
+    schema = []
+    for et in ontology.entity_types:
+        schema.append({
+            "label": et.label,
+            "properties": [
+                {
+                    "name": p.name,
+                    "type": p.type,
+                    "enum": p.enum,
+                    "required": p.required,
+                    "unique": p.unique,
+                }
+                for p in et.properties
+            ],
+        })
+
+    demo_study_ids = _demo_study_ids(ontology)
+    demo_id_rule = (
+        f"The generated Study.study_id values must include these IDs used by demo prompts: {demo_study_ids}."
+        if demo_study_ids
+        else "No demo prompt IDs are required."
+    )
+    prompt = f"""Generate coherent synthetic fixture entities for this {ontology.domain.name} context graph.
+
+Return one JSON object whose keys are exactly these entity labels, each value an array of 5 objects:
+{json.dumps(schema, indent=2)}
+
+Rules:
+- Every object must include a human-readable "name" field plus the listed properties.
+- Use realistic domain values, not document-placeholder names.
+- Keep bounded percentages and rates in realistic ranges.
+- Reuse identifiers across related records. If a non-Study entity has study_id, it must use one of the generated Study.study_id values.
+- {demo_id_rule}
+- If records have country_name or site_number, keep those values consistent with generated StudyCountry and StudySite records.
+- Include a useful mix of statuses and risk levels where enums allow it; do not make every record identical.
+- For clinical trial milestones, include at least one on_time, one slight_delay, one delay, and one yet_to_be_achieved milestone."""
+    system = (
+        "You generate high-quality coherent fixture data for graph demos. "
+        "Return only JSON that can be parsed directly."
+    )
+    try:
+        generated = _llm_generate_json(
+            client,
+            provider,
+            prompt,
+            system,
+            purpose="FIXTURE_GENERATION",
+            max_tokens=12000,
+        )
+    except Exception as exc:
+        console.print(f"  [yellow]LLM coherent entity generation failed:[/yellow] {exc}")
+        return None
+
+    if not isinstance(generated, dict):
+        return None
+
+    entities: dict[str, list[dict]] = {}
+    domain_id = ontology.domain.id
+    for et in ontology.entity_types:
+        items = generated.get(et.label)
+        if not isinstance(items, list) or not items:
+            entities[et.label] = _generate_static_entities(et, domain_id=domain_id)
+            continue
+        cleaned: list[dict] = []
+        for index, item in enumerate(items[:5]):
+            if not isinstance(item, dict):
+                continue
+            row = dict(item)
+            row.setdefault("name", row.get("study_name") or row.get("site_name") or f"{et.label} {index + 1}")
+            cleaned.append(row)
+        entities[et.label] = cleaned or _generate_static_entities(et, domain_id=domain_id)
+    _ensure_demo_study_ids(ontology, entities)
+    return entities
+
+
+def _demo_study_ids(ontology: DomainOntology) -> list[str]:
+    """Extract study IDs explicitly referenced by demo prompts."""
+    ids: list[str] = []
+    for scenario in ontology.demo_scenarios:
+        for prompt in scenario.prompts:
+            for match in re.findall(r"\b[A-Z]{2,}-\d{4}-\d{3,}\b", prompt):
+                if match not in ids:
+                    ids.append(match)
+    return ids
+
+
+def _ensure_demo_study_ids(
+    ontology: DomainOntology,
+    entities: dict[str, list[dict]],
+) -> None:
+    """Make generated Study IDs include IDs used by demo prompts."""
+    demo_ids = _demo_study_ids(ontology)
+    studies = entities.get("Study") or []
+    if not demo_ids or not studies:
+        return
+
+    existing = {study.get("study_id") for study in studies}
+    for index, demo_id in enumerate(demo_ids):
+        if demo_id in existing or index >= len(studies):
+            continue
+        old_id = studies[index].get("study_id")
+        studies[index]["study_id"] = demo_id
+        existing.add(demo_id)
+        if old_id in (None, ""):
+            continue
+        for label, rows in entities.items():
+            if label == "Study":
+                continue
+            for row in rows:
+                if row.get("study_id") == old_id:
+                    row["study_id"] = demo_id
+
+
 def _seed_entities(ontology: DomainOntology, client=None, provider: str | None = None) -> dict[str, list[dict]]:
     """Generate base entities for each type in the ontology."""
     entities: dict[str, list[dict]] = {}
     domain_id = ontology.domain.id
 
     if client and provider:
-        # LLM-powered entity generation
-        for et in ontology.entity_types:
-            props_desc = ", ".join(
-                f"{p.name} ({p.type}" + (f", one of: {p.enum}" if p.enum else "") + ")"
-                for p in et.properties
-            )
-            prompt = f"""Generate {min(8, max(3, 15 // len(ontology.entity_types)))} realistic {et.label} entities for a {ontology.domain.name} domain.
+        entities = _seed_entities_coherent_llm(ontology, client, provider) or {}
+        if not entities:
+            # LLM-powered per-label fallback.
+            for et in ontology.entity_types:
+                props_desc = ", ".join(
+                    f"{p.name} ({p.type}" + (f", one of: {p.enum}" if p.enum else "") + ")"
+                    for p in et.properties
+                )
+                prompt = f"""Generate {min(8, max(3, 15 // len(ontology.entity_types)))} realistic {et.label} entities for a {ontology.domain.name} domain.
 
 Each entity needs these properties: {props_desc}
 
 Return a JSON array of objects. Each object must have a "name" field plus the other properties."""
-            system = f"You are generating realistic sample data for a {ontology.domain.name} knowledge graph application."
+                system = f"You are generating realistic sample data for a {ontology.domain.name} knowledge graph application."
 
-            try:
-                items = _llm_generate_json(client, provider, prompt, system)
-                if isinstance(items, list):
-                    entities[et.label] = items
-                else:
+                try:
+                    items = _llm_generate_json(
+                        client,
+                        provider,
+                        prompt,
+                        system,
+                        purpose="FIXTURE_GENERATION",
+                    )
+                    if isinstance(items, list):
+                        entities[et.label] = items
+                    else:
+                        entities[et.label] = _generate_static_entities(et, domain_id=domain_id)
+                except Exception:
                     entities[et.label] = _generate_static_entities(et, domain_id=domain_id)
-            except Exception:
-                entities[et.label] = _generate_static_entities(et, domain_id=domain_id)
     else:
         # Static fallback entity generation
         for et in ontology.entity_types:
             entities[et.label] = _generate_static_entities(et, domain_id=domain_id)
 
-    # Post-process: clamp unrealistic values
+    # Post-process: enforce ontology enums and clamp unrealistic values.
+    _normalize_entity_enums(ontology, entities)
     _validate_and_clamp(entities)
 
     return entities
@@ -257,6 +515,23 @@ def _validate_and_clamp(entities: dict[str, list[dict]]) -> None:
                             break
 
 
+def _normalize_entity_enums(
+    ontology: DomainOntology,
+    entities: dict[str, list[dict]],
+) -> None:
+    """Force LLM-generated enum properties back into ontology values."""
+    for et in ontology.entity_types:
+        enum_props = {p.name: p.enum for p in et.properties if p.enum}
+        if not enum_props:
+            continue
+        for entity in entities.get(et.label, []):
+            for prop_name, enum_values in enum_props.items():
+                value = entity.get(prop_name)
+                if value in (None, "") or value in enum_values:
+                    continue
+                entity[prop_name] = enum_values[0]
+
+
 def _generate_static_entities(et, *, domain_id: str | None = None) -> list[dict]:
     """Generate realistic static entities when no LLM is available."""
     from create_context_graph.name_pools import (
@@ -296,6 +571,7 @@ def _weave_relationships(
 ) -> list[dict]:
     """Create relationships between entities based on ontology definitions."""
     relationships = []
+    shared_keys = ("study_id", "country_name", "site_number")
 
     for rel_def in ontology.relationships:
         source_entities = entities.get(rel_def.source, [])
@@ -304,12 +580,22 @@ def _weave_relationships(
         if not source_entities or not target_entities:
             continue
 
-        # Create relationships: each source connects to 1-2 targets
         for source in source_entities:
-            targets = random.sample(
-                target_entities,
-                min(random.randint(1, 2), len(target_entities)),
-            )
+            matching_targets = [
+                target for target in target_entities
+                if any(
+                    source.get(key) not in (None, "")
+                    and source.get(key) == target.get(key)
+                    for key in shared_keys
+                )
+            ]
+            if matching_targets:
+                targets = matching_targets[:3]
+            else:
+                targets = random.sample(
+                    target_entities,
+                    min(random.randint(1, 2), len(target_entities)),
+                )
             for target in targets:
                 # Avoid self-relationships
                 if source.get("name") == target.get("name"):
@@ -361,7 +647,13 @@ Write 200-400 words of realistic, professional content. Do not include any metad
                 system = f"You are generating realistic sample documents for a {ontology.domain.name} application."
 
                 try:
-                    content = _llm_generate(client, provider, prompt, system)
+                    content = _llm_generate(
+                        client,
+                        provider,
+                        prompt,
+                        system,
+                        purpose="FIXTURE_GENERATION",
+                    )
                 except Exception:
                     content = f"Sample {template.name} document #{i + 1} for {ontology.domain.name}."
             else:
@@ -571,7 +863,8 @@ def _generate_decision_traces(
                     observation = _llm_generate(
                         client, provider,
                         f"Generate a brief (1-2 sentence) realistic observation/result for this action in a {ontology.domain.name} context:\n\nAction: {step.action}",
-                        "Respond with just the observation text, nothing else."
+                        "Respond with just the observation text, nothing else.",
+                        purpose="FIXTURE_GENERATION",
                     )
                 except Exception:
                     pass
@@ -588,7 +881,8 @@ def _generate_decision_traces(
                 outcome = _llm_generate(
                     client, provider,
                     f"Generate a brief (1-2 sentence) realistic outcome for this decision task:\n\nTask: {task}\nSteps taken: {len(steps)}",
-                    "Respond with just the outcome text, nothing else."
+                    "Respond with just the outcome text, nothing else.",
+                    purpose="FIXTURE_GENERATION",
                 )
             except Exception:
                 pass
@@ -612,17 +906,20 @@ def generate_fixture_data(
     ontology: DomainOntology,
     output_path: Path,
     api_key: str | None = None,
-    provider: str = "anthropic",
+    provider: str | None = None,
 ) -> dict:
     """Run the full generation pipeline and write fixtures.json.
 
     Returns the generated data dict.
     """
     client, resolved_provider = None, None
+    requested_provider = _resolve_generation_provider(provider)
+    api_key = api_key or os.getenv(_env_key_for_provider(requested_provider))
     if api_key:
-        client, resolved_provider = _get_llm_client(api_key, provider)
+        client, resolved_provider = _get_llm_client(api_key, requested_provider)
         if client:
-            console.print(f"  Using {resolved_provider} for data generation")
+            model = _resolve_generation_model(resolved_provider, purpose="FIXTURE_GENERATION")
+            console.print(f"  Using {resolved_provider} ({model}) for data generation")
         else:
             console.print("  [yellow]LLM client not available, using static data[/yellow]")
 

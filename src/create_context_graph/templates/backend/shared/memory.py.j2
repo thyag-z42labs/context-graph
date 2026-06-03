@@ -184,6 +184,8 @@ async def connect_memory() -> None:
 
     try:
         ms = _build_memory_settings()
+        extraction_enabled = {{ auto_extract | capitalize }} and bool(_resolve_llm_model())
+        preferences_enabled = {{ auto_preferences | capitalize }} and extraction_enabled
         _client = MemoryClient(ms)
         await _client.connect()
         _memory = MemoryIntegration(
@@ -191,16 +193,16 @@ async def connect_memory() -> None:
             session_strategy=strategy_map.get(
                 settings.session_strategy, SessionStrategy.PER_CONVERSATION
             ),
-            auto_extract={{ auto_extract | capitalize }},
-            auto_preferences={{ auto_preferences | capitalize }},
+            auto_extract=extraction_enabled,
+            auto_preferences=preferences_enabled,
         )
         await _memory.connect()
         logger.info(
             "MemoryIntegration connected (backend=%s, strategy=%s, extract=%s, preferences=%s)",
             settings.memory_backend,
             settings.session_strategy,
-            {{ auto_extract | capitalize }},
-            {{ auto_preferences | capitalize }},
+            extraction_enabled,
+            preferences_enabled,
         )
     except Exception as e:
         category, detail = _classify_memory_error(e)

@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
 from dataclasses import dataclass
 
 from app.config import settings
+from app.agent_provider import (
+    anthropic_model,
+    fallback_to_legacy_enabled,
+    openai_model,
+    openrouter_model,
+    resolve_agent_provider,
+)
 
 {% raw %}
 # Ensure ANTHROPIC_API_KEY env var is set before PydanticAI creates the provider.
@@ -20,12 +28,21 @@ if not os.environ.get("ANTHROPIC_API_KEY"):
         _key = dotenv_values("../.env").get("ANTHROPIC_API_KEY", "")
         if _key:
             os.environ["ANTHROPIC_API_KEY"] = _key
+if not os.environ.get("OPENROUTER_API_KEY") and settings.openrouter_api_key:
+    os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
+if not os.environ.get("OPENAI_API_KEY") and settings.openai_api_key:
+    os.environ["OPENAI_API_KEY"] = settings.openai_api_key
 {% endraw %}
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
+
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """{{ system_prompt }}
@@ -48,11 +65,41 @@ class AgentDeps:
     session_id: str
 
 
+def _pydanticai_model_name(provider: str) -> str:
+    if provider == "openrouter":
+        return OpenRouterModel(
+            openrouter_model(),
+            provider=OpenRouterProvider(
+                api_key=settings.openrouter_api_key,
+                app_url=settings.openrouter_app_url or None,
+                app_title=settings.openrouter_app_title or None,
+            ),
+        )
+    if provider == "openai":
+        return f"openai:{openai_model()}"
+    return f"anthropic:{anthropic_model()}"
+
+
+agent_provider = resolve_agent_provider("anthropic")
+
 agent = Agent(
-    "anthropic:claude-sonnet-4-20250514",
+    _pydanticai_model_name(agent_provider),
     system_prompt=SYSTEM_PROMPT,
     deps_type=AgentDeps,
     retries=2,
+)
+
+legacy_agent = (
+    Agent(
+        _pydanticai_model_name("anthropic"),
+        system_prompt=SYSTEM_PROMPT,
+        deps_type=AgentDeps,
+        retries=2,
+    )
+    if agent_provider == "openrouter"
+    and fallback_to_legacy_enabled()
+    and settings.anthropic_api_key
+    else None
 )
 {% endraw %}
 
@@ -128,9 +175,17 @@ async def handle_message(message: str, session_id: str | None = None) -> dict:
             )
 
     deps = AgentDeps(session_id=session_id)
-    result = await agent.run(
-        message, deps=deps, message_history=message_history
-    )
+    try:
+        result = await agent.run(
+            message, deps=deps, message_history=message_history
+        )
+    except Exception as e:
+        if legacy_agent is None:
+            raise
+        logger.warning("OpenRouter PydanticAI call failed; falling back to Anthropic: %s", e)
+        result = await legacy_agent.run(
+            message, deps=deps, message_history=message_history
+        )
 
     response_text = result.output or ""
     if not response_text.strip():
@@ -179,9 +234,17 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
     # results are incorporated when Claude generates "I'll search..." + a tool
     # call in the same response.  Tool events (tool_start / tool_end) are still
     # pushed to the SSE queue by execute_cypher during the run.
-    result = await agent.run(
-        message, deps=deps, message_history=message_history
-    )
+    try:
+        result = await agent.run(
+            message, deps=deps, message_history=message_history
+        )
+    except Exception as e:
+        if legacy_agent is None:
+            raise
+        logger.warning("OpenRouter PydanticAI stream call failed; falling back to Anthropic: %s", e)
+        result = await legacy_agent.run(
+            message, deps=deps, message_history=message_history
+        )
 
     response_text = result.output or ""
     if not response_text.strip():
