@@ -696,6 +696,58 @@ class TestAllFrameworksRender:
                 f"pyproject.toml for {framework} missing dependency '{pkg_name}'"
             )
 
+    @pytest.mark.parametrize("framework", [
+        "pydanticai",
+        "claude-agent-sdk",
+        "openai-agents",
+        "langgraph",
+        "crewai",
+        "strands",
+        "anthropic-tools",
+    ])
+    def test_openrouter_agent_provider_wiring(self, framework, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="OpenRouter Test",
+            domain="financial-services",
+            framework=framework,
+            openrouter_api_key="sk-or-test",
+        )
+        out = tmp_path / f"openrouter-{framework}"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        agent = (out / "backend" / "app" / "agent.py").read_text()
+        helper = (out / "backend" / "app" / "agent_provider.py").read_text()
+        env_content = (out / ".env").read_text()
+        pyproject = (out / "backend" / "pyproject.toml").read_text()
+
+        assert "openrouter" in agent.lower()
+        assert "resolve_agent_provider" in agent
+        assert "fallback" in agent.lower()
+        assert "OPENROUTER_API_KEY=sk-or-test" in env_content
+        assert "httpx>=0.27" in pyproject
+        assert "run_openrouter_tool_loop" in helper
+
+    def test_langgraph_openrouter_dependencies(self, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="LangGraph OpenRouter",
+            domain="financial-services",
+            framework="langgraph",
+            openrouter_api_key="sk-or-test",
+        )
+        out = tmp_path / "langgraph-openrouter"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        pyproject = (out / "backend" / "pyproject.toml").read_text()
+        agent = (out / "backend" / "app" / "agent.py").read_text()
+        assert "langchain-openrouter" in pyproject
+        assert "langchain-anthropic" in pyproject
+        assert "ChatOpenRouter" in agent
+        assert "ChatAnthropic" in agent
+
 
 class TestCustomDomainRender:
     """Regression: renderer must complete a full scaffold when the user

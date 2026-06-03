@@ -37,8 +37,8 @@ If you omit flags (`uvx create-context-graph`), the wizard walks you through 6 p
 ```bash
 cd my-app
 # .env was generated with your NAMS API key already populated.
-# You only need to set ANTHROPIC_API_KEY for the agent to chat.
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
+# Set OpenRouter for OpenRouter-first agent model routing.
+echo 'OPENROUTER_API_KEY=sk-or-...' >> .env
 ```
 
 ## 3. Install & Start (~1 minute)

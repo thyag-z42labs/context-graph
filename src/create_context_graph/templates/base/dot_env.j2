@@ -27,6 +27,16 @@ ANTHROPIC_API_KEY={{ anthropic_api_key }}
 OPENAI_API_KEY={{ openai_api_key }}
 GOOGLE_API_KEY={{ google_api_key }}
 
+# Agent model provider (separate from MEMORY_LLM / MEMORY_EMBEDDING)
+# auto = prefer OpenRouter when OPENROUTER_API_KEY is set, otherwise use the framework legacy provider.
+AGENT_PROVIDER={{ agent_provider }}
+AGENT_MODEL={{ agent_model }}
+AGENT_FALLBACK_PROVIDER={{ agent_fallback_provider }}
+OPENROUTER_API_KEY={{ openrouter_api_key }}
+OPENROUTER_API_BASE={{ openrouter_api_base }}
+OPENROUTER_APP_URL={{ openrouter_app_url }}
+OPENROUTER_APP_TITLE={{ openrouter_app_title }}
+
 # Application
 DOMAIN_ID={{ domain.id }}
 BACKEND_PORT=8000

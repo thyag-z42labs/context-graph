@@ -70,7 +70,7 @@ There are two flows depending on what you want:
 - Node.js 18+ (for the frontend)
 - **NAMS path:** a NAMS API key from [memory.neo4jlabs.com](https://memory.neo4jlabs.com)
 - **Self-hosted path:** Neo4j 5+ (Docker, Aura, or local install)
-- **Either path:** `ANTHROPIC_API_KEY` for the agent (or `OPENAI_API_KEY`/`GOOGLE_API_KEY` depending on framework)
+- **Either path:** `OPENROUTER_API_KEY` for OpenRouter-first agent model routing, or the legacy framework key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GOOGLE_API_KEY`)
 
 ### NAMS path (default, hosted memory)
 
@@ -81,7 +81,7 @@ uvx create-context-graph my-app \
   --nams-api-key sk-nams-...
 
 cd my-app
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env   # Strands needs Anthropic
+echo 'OPENROUTER_API_KEY=sk-or-...' >> .env   # OpenRouter-first agent routing
 make install
 make start
 ```
@@ -228,12 +228,12 @@ Select your preferred agent framework at project creation time:
 
 | Framework | Description |
 |-----------|-------------|
-| **PydanticAI** | Structured tool definitions with Pydantic models and `RunContext` | Full streaming | `ANTHROPIC_API_KEY` |
-| **Claude Agent SDK** | Anthropic tool-use with agentic loop | Full streaming | `ANTHROPIC_API_KEY` |
-| **OpenAI Agents SDK** | `@function_tool` decorators with `Runner.run()` | Full streaming | `OPENAI_API_KEY` |
-| **LangGraph** | Stateful graph-based agent workflow with `create_react_agent()` | Full streaming | `ANTHROPIC_API_KEY` |
-| **CrewAI** | Multi-agent crew with role-based tools | Tool streaming | `ANTHROPIC_API_KEY` |
-| **Strands** | Tool-use agents with Anthropic model | Tool streaming | `ANTHROPIC_API_KEY` |
+| **PydanticAI** | Structured tool definitions with Pydantic models and `RunContext` | Full streaming | `OPENROUTER_API_KEY` preferred; Anthropic fallback |
+| **Claude Agent SDK** | Anthropic tool-use with agentic loop | Full streaming | `OPENROUTER_API_KEY` preferred; Anthropic fallback |
+| **OpenAI Agents SDK** | `@function_tool` decorators with `Runner.run()` | Full streaming | `OPENROUTER_API_KEY` preferred; OpenAI fallback |
+| **LangGraph** | Stateful graph-based agent workflow with `create_react_agent()` | Full streaming | `OPENROUTER_API_KEY` preferred; Anthropic fallback |
+| **CrewAI** | Multi-agent crew with role-based tools | Tool streaming | `OPENROUTER_API_KEY` preferred; Anthropic fallback |
+| **Strands** | Tool-use agents with Anthropic model | Tool streaming | `OPENROUTER_API_KEY` preferred; Anthropic fallback |
 | **Google ADK** | Gemini agents with `FunctionTool` calling | Full streaming | `GOOGLE_API_KEY` |
 | **Anthropic Tools** | Modular tool registry with Anthropic API agentic loop | Full streaming | `ANTHROPIC_API_KEY` |
 
@@ -349,6 +349,11 @@ Options:
   --anthropic-api-key TEXT  Anthropic API key for LLM generation [env: ANTHROPIC_API_KEY]
   --openai-api-key TEXT    OpenAI API key for LLM generation [env: OPENAI_API_KEY]
   --google-api-key TEXT    Google/Gemini API key (required for google-adk) [env: GOOGLE_API_KEY]
+  --agent-provider TEXT    Agent provider: auto, openrouter, legacy, anthropic, openai, google [env: AGENT_PROVIDER]
+  --agent-model TEXT       Agent model override, e.g. anthropic/claude-sonnet-4.5 [env: AGENT_MODEL]
+  --agent-fallback-provider TEXT  Fallback provider: legacy or none [env: AGENT_FALLBACK_PROVIDER]
+  --openrouter-api-key TEXT OpenRouter API key for agent routing [env: OPENROUTER_API_KEY]
+  --openrouter-api-base TEXT OpenRouter API base URL [env: OPENROUTER_API_BASE]
   --output-dir PATH         Output directory (default: ./<project-name>)
   --demo                    Shortcut for --reset-database --demo-data --ingest
   --reset-database          Clear all Neo4j data before ingesting
@@ -437,8 +442,9 @@ python scripts/e2e_smoke_test.py --domain healthcare --framework claude-agent-sd
 **Required environment variables:**
 - `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD` — Neo4j connection (Aura, Docker, or local) for `--backend bolt`
 - `MEMORY_API_KEY` — NAMS API key for `--backend nams`
-- `ANTHROPIC_API_KEY` — for Claude-based frameworks (PydanticAI, Claude Agent SDK, Anthropic Tools, Strands, CrewAI)
-- `OPENAI_API_KEY` — for OpenAI-based frameworks (OpenAI Agents, LangGraph)
+- `OPENROUTER_API_KEY` — preferred for agent model routing across Anthropic/OpenAI-backed frameworks
+- `ANTHROPIC_API_KEY` — legacy fallback for Claude-based frameworks (PydanticAI, Claude Agent SDK, Anthropic Tools, Strands, CrewAI, LangGraph)
+- `OPENAI_API_KEY` — legacy fallback for OpenAI Agents
 - `GOOGLE_API_KEY` — for Google ADK (Gemini)
 
 ### CI Pipeline

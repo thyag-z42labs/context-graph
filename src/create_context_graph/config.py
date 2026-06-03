@@ -25,9 +25,13 @@ from pydantic import BaseModel, Field, computed_field
 SESSION_STRATEGIES = ["per_conversation", "per_day", "persistent"]
 MCP_PROFILES = ["core", "extended"]
 MEMORY_BACKENDS = ["nams", "bolt"]
+AGENT_PROVIDERS = ["auto", "openrouter", "legacy", "anthropic", "openai", "google"]
+AGENT_FALLBACK_PROVIDERS = ["legacy", "none"]
 DEFAULT_FRAMEWORK = "strands"
 DEFAULT_MEMORY_BACKEND = "nams"
 DEFAULT_NAMS_ENDPOINT = "https://memory.neo4jlabs.com/v1"
+DEFAULT_OPENROUTER_API_BASE = "https://openrouter.ai/api/v1"
+DEFAULT_OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
 NAMS_SIGNUP_URL = "https://memory.neo4jlabs.com"
 
 SUPPORTED_FRAMEWORKS = [
@@ -55,11 +59,11 @@ FRAMEWORK_DISPLAY_NAMES = {
 FRAMEWORK_DEPENDENCIES = {
     "pydanticai": ["pydantic-ai>=0.1"],
     "claude-agent-sdk": ["claude-agent-sdk>=0.1", "anthropic>=0.30"],
-    "strands": ["strands-agents[anthropic]>=0.1"],
+    "strands": ["strands-agents[anthropic,openai]>=0.1"],
     "google-adk": ["google-adk>=0.1", "nest-asyncio>=1.5"],
     "openai-agents": ["openai-agents>=0.1"],
-    "langgraph": ["langgraph>=0.1", "langchain-anthropic>=0.3"],
-    "crewai": ["crewai[anthropic]>=0.1"],
+    "langgraph": ["langgraph>=0.1", "langchain-anthropic>=0.3", "langchain-openrouter>=0.2", "langchain-openai>=0.3"],
+    "crewai": ["crewai[anthropic,litellm]>=0.1"],
     "anthropic-tools": ["anthropic>=0.30"],
 }
 
@@ -89,6 +93,22 @@ class ProjectConfig(BaseModel):
     anthropic_api_key: str | None = Field(default=None)
     openai_api_key: str | None = Field(default=None)
     google_api_key: str | None = Field(default=None)
+
+    # Agent model provider selection. The memory layer has its own
+    # MEMORY_LLM/MEMORY_EMBEDDING provider strings below.
+    agent_provider: Literal["auto", "openrouter", "legacy", "anthropic", "openai", "google"] = Field(
+        default="auto",
+        description="Agent model provider preference",
+    )
+    agent_model: str | None = Field(default=None, description="Agent model override")
+    agent_fallback_provider: Literal["legacy", "none"] = Field(
+        default="legacy",
+        description="Fallback behavior when the preferred agent provider fails",
+    )
+    openrouter_api_key: str | None = Field(default=None)
+    openrouter_api_base: str = Field(default=DEFAULT_OPENROUTER_API_BASE)
+    openrouter_app_url: str | None = Field(default=None)
+    openrouter_app_title: str | None = Field(default=None)
 
     # LiteLLM provider strings for memory layer (optional — defaults applied at runtime)
     memory_llm: str | None = Field(
@@ -156,4 +176,26 @@ class ProjectConfig(BaseModel):
 
     @property
     def framework_deps(self) -> list[str]:
-        return FRAMEWORK_DEPENDENCIES.get(self.framework, [])
+        return list(FRAMEWORK_DEPENDENCIES.get(self.framework, []))
+
+    @property
+    def effective_agent_provider(self) -> str:
+        """Provider that will be attempted first by generated agent code."""
+        if self.framework == "google-adk":
+            return "google"
+        if self.agent_provider == "auto":
+            return "openrouter" if self.openrouter_api_key else "legacy"
+        return self.agent_provider
+
+    @property
+    def default_agent_model(self) -> str:
+        """Default model for the selected framework/provider."""
+        if self.agent_model:
+            return self.agent_model
+        if self.effective_agent_provider == "openrouter":
+            return DEFAULT_OPENROUTER_MODEL
+        if self.framework == "openai-agents" or self.effective_agent_provider == "openai":
+            return "gpt-5-mini"
+        if self.framework == "google-adk" or self.effective_agent_provider == "google":
+            return "gemini-2.0-flash"
+        return "claude-sonnet-4-20250514"

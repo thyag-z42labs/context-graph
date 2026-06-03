@@ -1,0 +1,299 @@
+"""Agent model provider helpers for OpenRouter-first routing."""
+{% raw %}
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+import httpx
+
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+OPENROUTER_DEFAULT_MODEL = "anthropic/claude-sonnet-4.5"
+ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+OPENAI_DEFAULT_MODEL = "gpt-5-mini"
+GOOGLE_DEFAULT_MODEL = "gemini-2.0-flash"
+
+ToolExecutor = Callable[[str, dict[str, Any]], Awaitable[str]]
+
+
+def resolve_agent_provider(legacy_provider: str) -> str:
+    """Resolve configured provider into the first provider to try."""
+    configured = (settings.agent_provider or "auto").strip().lower()
+    if configured == "auto":
+        return "openrouter" if settings.openrouter_api_key else legacy_provider
+    if configured == "legacy":
+        return legacy_provider
+    return configured
+
+
+def fallback_to_legacy_enabled() -> bool:
+    return (settings.agent_fallback_provider or "legacy").lower() != "none"
+
+
+def agent_model(default: str) -> str:
+    return (settings.agent_model or "").strip() or default
+
+
+def openrouter_model() -> str:
+    return agent_model(OPENROUTER_DEFAULT_MODEL)
+
+
+def openai_model() -> str:
+    return agent_model(OPENAI_DEFAULT_MODEL)
+
+
+def anthropic_model() -> str:
+    return agent_model(ANTHROPIC_DEFAULT_MODEL)
+
+
+def google_model() -> str:
+    return agent_model(GOOGLE_DEFAULT_MODEL)
+
+
+def _openrouter_headers() -> dict[str, str]:
+    if not settings.openrouter_api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is required for OpenRouter agent routing")
+    headers = {
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Content-Type": "application/json",
+    }
+    if settings.openrouter_app_url:
+        headers["HTTP-Referer"] = settings.openrouter_app_url
+    if settings.openrouter_app_title:
+        headers["X-OpenRouter-Title"] = settings.openrouter_app_title
+    return headers
+
+
+def anthropic_tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert Anthropic-style tool schemas to OpenAI/OpenRouter tool schemas."""
+    converted = []
+    for item in tools:
+        converted.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": item["name"],
+                    "description": item.get("description", ""),
+                    "parameters": item.get("input_schema") or {
+                        "type": "object",
+                        "properties": {},
+                    },
+                },
+            }
+        )
+    return converted
+
+
+def _chat_completions_url() -> str:
+    base = (settings.openrouter_api_base or "https://openrouter.ai/api/v1").rstrip("/")
+    return f"{base}/chat/completions"
+
+
+def _coerce_tool_arguments(raw: Any) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _merge_tool_call_delta(
+    tool_calls: dict[int, dict[str, Any]],
+    delta_tool_call: dict[str, Any],
+) -> None:
+    index = int(delta_tool_call.get("index", 0))
+    current = tool_calls.setdefault(
+        index,
+        {
+            "id": "",
+            "type": "function",
+            "function": {"name": "", "arguments": ""},
+        },
+    )
+    if delta_tool_call.get("id"):
+        current["id"] = delta_tool_call["id"]
+    function_delta = delta_tool_call.get("function") or {}
+    if function_delta.get("name"):
+        current["function"]["name"] += function_delta["name"]
+    if function_delta.get("arguments"):
+        current["function"]["arguments"] += function_delta["arguments"]
+
+
+async def _post_openrouter(payload: dict[str, Any]) -> dict[str, Any]:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            _chat_completions_url(),
+            headers=_openrouter_headers(),
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def run_openrouter_tool_loop(
+    *,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    execute_tool: ToolExecutor,
+    system_prompt: str,
+    max_iterations: int = 15,
+) -> str:
+    """Run a bounded OpenRouter Chat Completions tool loop."""
+    openai_tools = anthropic_tools_to_openai(tools)
+    working_messages = [{"role": "system", "content": system_prompt}] + list(messages)
+
+    for _iteration in range(max_iterations):
+        payload = {
+            "model": openrouter_model(),
+            "messages": working_messages,
+            "tools": openai_tools,
+            "tool_choice": "auto",
+            "max_tokens": 4096,
+        }
+        data = await _post_openrouter(payload)
+        choice = (data.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        tool_calls = message.get("tool_calls") or []
+        content = message.get("content") or ""
+
+        if not tool_calls:
+            return content or ""
+
+        working_messages.append(
+            {
+                "role": "assistant",
+                "content": content,
+                "tool_calls": tool_calls,
+            }
+        )
+        for call in tool_calls:
+            fn = call.get("function") or {}
+            name = fn.get("name") or ""
+            args = _coerce_tool_arguments(fn.get("arguments"))
+            result = await execute_tool(name, args)
+            working_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.get("id", name),
+                    "name": name,
+                    "content": result if isinstance(result, str) else json.dumps(result, default=str),
+                }
+            )
+
+    return "I've reached the maximum number of tool calls. Here's what I found so far based on the queries executed."
+
+
+async def stream_openrouter_tool_loop(
+    *,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    execute_tool: ToolExecutor,
+    system_prompt: str,
+    collector: Any,
+    max_iterations: int = 15,
+) -> str:
+    """Stream OpenRouter text deltas while preserving tool-loop behavior."""
+    openai_tools = anthropic_tools_to_openai(tools)
+    working_messages = [{"role": "system", "content": system_prompt}] + list(messages)
+    final_text = ""
+
+    for _iteration in range(max_iterations):
+        payload = {
+            "model": openrouter_model(),
+            "messages": working_messages,
+            "tools": openai_tools,
+            "tool_choice": "auto",
+            "max_tokens": 4096,
+            "stream": True,
+        }
+        text_parts: list[str] = []
+        tool_calls_by_index: dict[int, dict[str, Any]] = {}
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream(
+                "POST",
+                _chat_completions_url(),
+                headers=_openrouter_headers(),
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    raw = line.removeprefix("data:").strip()
+                    if not raw or raw == "[DONE]":
+                        continue
+                    try:
+                        chunk = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    choice = (chunk.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
+                    text = delta.get("content") or ""
+                    if text:
+                        collector.emit_text_delta(text)
+                        text_parts.append(text)
+                    for tool_call_delta in delta.get("tool_calls") or []:
+                        _merge_tool_call_delta(tool_calls_by_index, tool_call_delta)
+
+        tool_calls = [tool_calls_by_index[i] for i in sorted(tool_calls_by_index)]
+        content = "".join(text_parts)
+        if not tool_calls:
+            final_text = content
+            break
+
+        working_messages.append(
+            {
+                "role": "assistant",
+                "content": content,
+                "tool_calls": tool_calls,
+            }
+        )
+        for call in tool_calls:
+            fn = call.get("function") or {}
+            name = fn.get("name") or ""
+            args = _coerce_tool_arguments(fn.get("arguments"))
+            result = await execute_tool(name, args)
+            working_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.get("id", name),
+                    "name": name,
+                    "content": result if isinstance(result, str) else json.dumps(result, default=str),
+                }
+            )
+    else:
+        final_text = "I've reached the maximum number of tool calls. Here's what I found so far based on the queries executed."
+
+    return final_text
+
+
+async def run_with_openrouter_fallback(
+    *,
+    legacy_provider: str,
+    openrouter_call: Callable[[], Awaitable[str]],
+    legacy_call: Callable[[], Awaitable[str]],
+) -> tuple[str, str]:
+    """Try OpenRouter first when configured, falling back to legacy if enabled."""
+    provider = resolve_agent_provider(legacy_provider)
+    if provider == "openrouter":
+        try:
+            return await openrouter_call(), "openrouter"
+        except Exception as exc:
+            if not fallback_to_legacy_enabled():
+                raise
+            logger.warning("OpenRouter agent provider failed; falling back to %s: %s", legacy_provider, exc)
+            return await legacy_call(), legacy_provider
+    return await legacy_call(), provider
+{% endraw %}

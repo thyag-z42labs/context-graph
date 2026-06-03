@@ -59,6 +59,7 @@ class TestGeneratedPythonFiles:
     PYTHON_FILES = [
         "backend/app/main.py",
         "backend/app/config.py",
+        "backend/app/agent_provider.py",
         "backend/app/agent.py",
         "backend/app/routes.py",
         "backend/app/models.py",

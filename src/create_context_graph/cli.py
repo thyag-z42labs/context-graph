@@ -25,6 +25,9 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from create_context_graph.config import (
+    AGENT_FALLBACK_PROVIDERS,
+    AGENT_PROVIDERS,
+    DEFAULT_OPENROUTER_API_BASE,
     DEFAULT_FRAMEWORK,
     NAMS_SIGNUP_URL,
     SUPPORTED_FRAMEWORKS,
@@ -153,6 +156,13 @@ def _run_import_preview(
 @click.option("--anthropic-api-key", envvar="ANTHROPIC_API_KEY", help="Anthropic API key for LLM generation")
 @click.option("--openai-api-key", envvar="OPENAI_API_KEY", help="OpenAI API key for LLM generation")
 @click.option("--google-api-key", envvar="GOOGLE_API_KEY", help="Google/Gemini API key (required for google-adk framework)")
+@click.option("--agent-provider", type=click.Choice(AGENT_PROVIDERS, case_sensitive=False), default="auto", envvar="AGENT_PROVIDER", help="Agent model provider preference")
+@click.option("--agent-model", envvar="AGENT_MODEL", help="Agent model override (e.g. anthropic/claude-sonnet-4.5 for OpenRouter)")
+@click.option("--agent-fallback-provider", type=click.Choice(AGENT_FALLBACK_PROVIDERS, case_sensitive=False), default="legacy", envvar="AGENT_FALLBACK_PROVIDER", help="Fallback provider when the preferred agent provider fails")
+@click.option("--openrouter-api-key", envvar="OPENROUTER_API_KEY", help="OpenRouter API key for agent model routing")
+@click.option("--openrouter-api-base", envvar="OPENROUTER_API_BASE", default=DEFAULT_OPENROUTER_API_BASE, help="OpenRouter API base URL")
+@click.option("--openrouter-app-url", envvar="OPENROUTER_APP_URL", help="Optional OpenRouter app attribution URL")
+@click.option("--openrouter-app-title", envvar="OPENROUTER_APP_TITLE", help="Optional OpenRouter app attribution title")
 @click.option("--custom-domain", type=str, help="Natural language description for custom domain generation. Requires --anthropic-api-key AND the 'anthropic' SDK; if running via uvx, use 'uvx --with anthropic create-context-graph ...'")
 @click.option("--connector", multiple=True, help="SaaS connector to enable (github, slack, jira, notion, gmail, gcal, salesforce, linear, google-workspace, claude-code, claude-ai, chatgpt, local-file)")
 @click.option("--linear-api-key", envvar="LINEAR_API_KEY", help="Linear API key (required for --connector linear)")
@@ -215,6 +225,13 @@ def main(
     anthropic_api_key: str | None,
     openai_api_key: str | None,
     google_api_key: str | None,
+    agent_provider: str,
+    agent_model: str | None,
+    agent_fallback_provider: str,
+    openrouter_api_key: str | None,
+    openrouter_api_base: str,
+    openrouter_app_url: str | None,
+    openrouter_app_title: str | None,
     custom_domain: str | None,
     connector: tuple[str, ...],
     linear_api_key: str | None,
@@ -415,6 +432,13 @@ def main(
             anthropic_api_key=anthropic_api_key,
             openai_api_key=openai_api_key,
             google_api_key=google_api_key,
+            agent_provider=agent_provider,
+            agent_model=agent_model,
+            agent_fallback_provider=agent_fallback_provider,
+            openrouter_api_key=openrouter_api_key,
+            openrouter_api_base=openrouter_api_base or DEFAULT_OPENROUTER_API_BASE,
+            openrouter_app_url=openrouter_app_url,
+            openrouter_app_title=openrouter_app_title,
             generate_data=demo_data,
             custom_domain_yaml=custom_domain_yaml,
             saas_connectors=list(connector),
@@ -494,8 +518,18 @@ def main(
                 "[yellow]Warning:[/yellow] google-adk framework requires a Google/Gemini API key. "
                 "Set GOOGLE_API_KEY in your .env or pass --google-api-key."
             )
+        if config.framework == "google-adk" and config.agent_provider not in ("auto", "legacy", "google"):
+            console.print(
+                "[yellow]Warning:[/yellow] google-adk currently uses Google ADK models only. "
+                "OpenRouter-first agent routing applies to Anthropic/OpenAI-backed frameworks."
+            )
+        if config.effective_agent_provider == "openrouter" and not openrouter_api_key:
+            console.print(
+                "[yellow]Warning:[/yellow] OpenRouter was selected for the agent but OPENROUTER_API_KEY is not set. "
+                "Set OPENROUTER_API_KEY in your .env or pass --openrouter-api-key."
+            )
         # Warn if openai-agents is selected without an OpenAI API key
-        if config.framework == "openai-agents" and not openai_api_key:
+        if config.framework == "openai-agents" and config.effective_agent_provider != "openrouter" and not openai_api_key:
             console.print(
                 "[yellow]Warning:[/yellow] openai-agents framework requires an OpenAI API key. "
                 "Set OPENAI_API_KEY in your .env or pass --openai-api-key."
@@ -516,6 +550,7 @@ def main(
         console.print(f"  Slug:       {config.project_slug}")
         console.print(f"  Domain:     {config.domain}")
         console.print(f"  Framework:  {config.framework}")
+        console.print(f"  Agent LLM:  provider={config.agent_provider}, model={config.agent_model or config.default_agent_model}")
         console.print(f"  Backend:    {config.memory_backend}")
         if config.is_self_hosted:
             console.print(f"  Neo4j:      {config.neo4j_type} ({config.neo4j_uri})")

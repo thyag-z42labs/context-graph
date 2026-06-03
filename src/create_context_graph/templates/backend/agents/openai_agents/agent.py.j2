@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 
-from agents import Agent, Runner, function_tool
+from agents import Agent, AsyncOpenAI, OpenAIChatCompletionsModel, Runner, function_tool, set_tracing_disabled
 
+from app.agent_provider import fallback_to_legacy_enabled, openai_model, openrouter_model, resolve_agent_provider
 from app.config import settings
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
+
+logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """{{ system_prompt }}
@@ -59,9 +63,28 @@ async def get_graph_schema() -> str:
     return json.dumps(result, default=str)
 {% endraw %}
 
+{% raw %}
+def _build_agent_model(provider: str):
+    if provider == "openrouter":
+        set_tracing_disabled(True)
+        client = AsyncOpenAI(
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_api_base,
+        )
+        return OpenAIChatCompletionsModel(
+            model=openrouter_model(),
+            openai_client=client,
+        )
+    return openai_model()
+
+
+agent_provider = resolve_agent_provider("openai")
+{% endraw %}
+
 agent = Agent(
     name="{{ domain.name }} Assistant",
     instructions=SYSTEM_PROMPT,
+    model=_build_agent_model(agent_provider),
     tools=[
 {% for tool in agent_tools %}
         {{ tool.name }},
@@ -72,6 +95,25 @@ agent = Agent(
 )
 
 {% raw %}
+legacy_agent = (
+    Agent(
+        name="{{ domain.name }} Legacy Assistant",
+        instructions=SYSTEM_PROMPT,
+        model=_build_agent_model("openai"),
+        tools=[
+{% endraw %}
+{% for tool in agent_tools %}
+            {{ tool.name }},
+{% endfor %}
+{% raw %}
+            run_cypher,
+            get_graph_schema,
+        ],
+    )
+    if agent_provider == "openrouter" and fallback_to_legacy_enabled()
+    else None
+)
+
 # ---------------------------------------------------------------------------
 # Message handler
 # ---------------------------------------------------------------------------
@@ -98,7 +140,13 @@ async def handle_message(message: str, session_id: str | None = None) -> dict:
     else:
         input_message = message
 
-    result = await Runner.run(agent, input_message)
+    try:
+        result = await Runner.run(agent, input_message)
+    except Exception as e:
+        if legacy_agent is None:
+            raise
+        logger.warning("OpenRouter OpenAI Agents call failed; falling back to OpenAI: %s", e)
+        result = await Runner.run(legacy_agent, input_message)
 
     response_text = result.final_output
     assistant_result = await store_message(session_id, "assistant", response_text)
@@ -135,19 +183,35 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
     else:
         input_message = message
 
-    result = Runner.run_streamed(agent, input_message)
+    active_agent = agent
+    result = Runner.run_streamed(active_agent, input_message)
     response_text = ""
-    async for event in result.stream_events():
-        if event.type == "raw_response_event":
-            data = event.data
-            # Only emit text content deltas — skip tool call argument deltas
-            # which would otherwise leak raw JSON into the response stream.
-            event_type = getattr(data, "type", "")
-            if event_type == "response.output_text.delta":
-                delta = getattr(data, "delta", "")
-                if delta:
-                    collector.emit_text_delta(delta)
-                    response_text += delta
+    try:
+        async for event in result.stream_events():
+            if event.type == "raw_response_event":
+                data = event.data
+                # Only emit text content deltas — skip tool call argument deltas
+                # which would otherwise leak raw JSON into the response stream.
+                event_type = getattr(data, "type", "")
+                if event_type == "response.output_text.delta":
+                    delta = getattr(data, "delta", "")
+                    if delta:
+                        collector.emit_text_delta(delta)
+                        response_text += delta
+    except Exception as e:
+        if legacy_agent is None or response_text:
+            raise
+        logger.warning("OpenRouter OpenAI Agents stream failed; falling back to OpenAI: %s", e)
+        result = Runner.run_streamed(legacy_agent, input_message)
+        async for event in result.stream_events():
+            if event.type == "raw_response_event":
+                data = event.data
+                event_type = getattr(data, "type", "")
+                if event_type == "response.output_text.delta":
+                    delta = getattr(data, "delta", "")
+                    if delta:
+                        collector.emit_text_delta(delta)
+                        response_text += delta
 
     if not response_text:
         response_text = result.final_output or ""

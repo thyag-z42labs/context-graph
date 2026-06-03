@@ -112,8 +112,15 @@ All of the following imply `--self-hosted` if passed without `--nams-api-key`.
 | Option | Type | Env Variable | Description |
 |--------|------|-------------|-------------|
 | `--anthropic-api-key` | `string` | `ANTHROPIC_API_KEY` | For LLM data generation and custom domains. |
-| `--openai-api-key` | `string` | `OPENAI_API_KEY` | For OpenAI Agents and LangGraph frameworks. |
+| `--openai-api-key` | `string` | `OPENAI_API_KEY` | Legacy fallback for OpenAI Agents. |
 | `--google-api-key` | `string` | `GOOGLE_API_KEY` | For the `google-adk` framework (Gemini models). |
+| `--agent-provider` | `choice` | `AGENT_PROVIDER` | Agent provider preference: `auto`, `openrouter`, `legacy`, `anthropic`, `openai`, or `google`. |
+| `--agent-model` | `string` | `AGENT_MODEL` | Agent model override, such as an OpenRouter model slug. |
+| `--agent-fallback-provider` | `choice` | `AGENT_FALLBACK_PROVIDER` | `legacy` retries the old provider when OpenRouter fails; `none` disables fallback. |
+| `--openrouter-api-key` | `string` | `OPENROUTER_API_KEY` | Preferred agent model routing key for Anthropic/OpenAI-backed frameworks. |
+| `--openrouter-api-base` | `string` | `OPENROUTER_API_BASE` | OpenRouter API base URL. |
+| `--openrouter-app-url` | `string` | `OPENROUTER_APP_URL` | Optional OpenRouter attribution URL. |
+| `--openrouter-app-title` | `string` | `OPENROUTER_APP_TITLE` | Optional OpenRouter attribution title. |
 
 ### Output & Debug
 
