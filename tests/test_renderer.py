@@ -748,6 +748,26 @@ class TestAllFrameworksRender:
         assert "ChatOpenRouter" in agent
         assert "ChatAnthropic" in agent
 
+    @pytest.mark.parametrize("framework", ["pydanticai", "langgraph", "openai-agents", "crewai", "strands"])
+    def test_explicit_openai_agent_provider_wiring(self, framework, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="OpenAI Provider Test",
+            domain="financial-services",
+            framework=framework,
+            agent_provider="openai",
+            openai_api_key="sk-test-openai",
+        )
+        out = tmp_path / f"openai-provider-{framework}"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        source = (out / "backend" / "app" / "agent.py").read_text()
+        compile(source, str(out / "backend" / "app" / "agent.py"), "exec")
+        assert "openai_model" in source or "ChatOpenAI" in source
+        if framework in {"crewai", "strands"}:
+            assert "settings.openai_api_key" in source
+
 
 class TestCustomDomainRender:
     """Regression: renderer must complete a full scaffold when the user

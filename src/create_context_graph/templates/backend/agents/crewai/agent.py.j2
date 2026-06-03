@@ -12,7 +12,7 @@ from crewai import Agent, Crew, Task
 from crewai import LLM
 from crewai.tools import tool
 
-from app.agent_provider import anthropic_model, fallback_to_legacy_enabled, openrouter_model, resolve_agent_provider
+from app.agent_provider import anthropic_model, fallback_to_legacy_enabled, openai_model, openrouter_model, resolve_agent_provider
 from app.config import settings
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
@@ -109,6 +109,11 @@ def _build_llm(provider: str):
             model=openrouter_model(),
             api_key=settings.openrouter_api_key,
             base_url=settings.openrouter_api_base,
+        )
+    if provider == "openai":
+        return LLM(
+            model=openai_model(),
+            api_key=settings.openai_api_key,
         )
     return LLM(model=f"anthropic/{anthropic_model()}")
 

@@ -12,7 +12,7 @@ from strands.models.anthropic import AnthropicModel
 from strands.models.openai import OpenAIModel
 from strands.tools import tool
 
-from app.agent_provider import anthropic_model, fallback_to_legacy_enabled, openrouter_model, resolve_agent_provider
+from app.agent_provider import anthropic_model, fallback_to_legacy_enabled, openai_model, openrouter_model, resolve_agent_provider
 from app.config import settings
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
@@ -111,6 +111,12 @@ def _build_model(provider: str):
                 "base_url": settings.openrouter_api_base,
             },
             model_id=openrouter_model(),
+            params={"max_tokens": 4096},
+        )
+    if provider == "openai":
+        return OpenAIModel(
+            client_args={"api_key": settings.openai_api_key},
+            model_id=openai_model(),
             params={"max_tokens": 4096},
         )
     return AnthropicModel(model_id=anthropic_model(), max_tokens=4096)

@@ -67,9 +67,15 @@ async def get_graph_schema() -> str:
 def _build_agent_model(provider: str):
     if provider == "openrouter":
         set_tracing_disabled(True)
+        default_headers = {}
+        if settings.openrouter_app_url:
+            default_headers["HTTP-Referer"] = settings.openrouter_app_url
+        if settings.openrouter_app_title:
+            default_headers["X-OpenRouter-Title"] = settings.openrouter_app_title
         client = AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url=settings.openrouter_api_base,
+            default_headers=default_headers or None,
         )
         return OpenAIChatCompletionsModel(
             model=openrouter_model(),

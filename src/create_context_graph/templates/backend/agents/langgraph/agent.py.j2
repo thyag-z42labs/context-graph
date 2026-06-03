@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -85,10 +86,14 @@ TOOLS = [
 def _build_model(provider: str):
     """Build the LangChain chat model for the resolved provider."""
     if provider == "openrouter":
+        if settings.openrouter_api_key:
+            os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
+        if settings.openrouter_app_url:
+            os.environ["OPENROUTER_APP_URL"] = settings.openrouter_app_url
+        if settings.openrouter_app_title:
+            os.environ["OPENROUTER_APP_TITLE"] = settings.openrouter_app_title
         return ChatOpenRouter(
             model=openrouter_model(),
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_api_base,
             app_url=settings.openrouter_app_url or None,
             app_title=settings.openrouter_app_title or None,
         )

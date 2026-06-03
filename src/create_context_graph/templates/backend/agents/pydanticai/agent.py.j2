@@ -35,6 +35,8 @@ if not os.environ.get("OPENAI_API_KEY") and settings.openai_api_key:
 {% endraw %}
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openrouter import OpenRouterModel
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
@@ -65,7 +67,14 @@ class AgentDeps:
 
 def _pydanticai_model_name(provider: str) -> str:
     if provider == "openrouter":
-        return f"openrouter:{openrouter_model()}"
+        return OpenRouterModel(
+            openrouter_model(),
+            provider=OpenRouterProvider(
+                api_key=settings.openrouter_api_key,
+                app_url=settings.openrouter_app_url or None,
+                app_title=settings.openrouter_app_title or None,
+            ),
+        )
     if provider == "openai":
         return f"openai:{openai_model()}"
     return f"anthropic:{anthropic_model()}"
