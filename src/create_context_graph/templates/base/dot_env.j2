@@ -37,6 +37,15 @@ OPENROUTER_API_BASE={{ openrouter_api_base }}
 OPENROUTER_APP_URL={{ openrouter_app_url }}
 OPENROUTER_APP_TITLE={{ openrouter_app_title }}
 
+# Graph/context generation model routing
+# AGENT_* controls answering; MEMORY_* controls memory extraction.
+# GENERATION_* controls package-level LLM generation flows.
+GENERATION_PROVIDER=auto
+GENERATION_MODEL={{ agent_model }}
+FIXTURE_GENERATION_PROVIDER=auto
+FIXTURE_GENERATION_MODEL={{ agent_model }}
+ONTOLOGY_GENERATION_MODEL={{ agent_model }}
+
 # Application
 DOMAIN_ID={{ domain.id }}
 BACKEND_PORT=8000

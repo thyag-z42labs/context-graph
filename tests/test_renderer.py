@@ -118,6 +118,20 @@ class TestProjectRenderer:
         assert (tmp_output / "cypher" / "schema.cypher").exists()
         assert (tmp_output / "cypher" / "gds_projections.cypher").exists()
 
+    def test_schema_target_connects_before_applying_schema(self, financial_config, tmp_output):
+        ontology = load_domain(financial_config.domain)
+        renderer = ProjectRenderer(financial_config, ontology)
+        renderer.render(tmp_output)
+
+        makefile = (tmp_output / "Makefile").read_text()
+        generate_data = (tmp_output / "backend" / "scripts" / "generate_data.py").read_text()
+        schema = (tmp_output / "cypher" / "schema.cypher").read_text()
+
+        assert "schema_only" in makefile
+        assert "async def schema_only()" in generate_data
+        assert "await connect_neo4j()" in generate_data
+        assert "generated; dimensions" not in schema
+
     def test_render_creates_data(self, financial_config, tmp_output):
         ontology = load_domain(financial_config.domain)
         renderer = ProjectRenderer(financial_config, ontology)
@@ -728,6 +742,23 @@ class TestAllFrameworksRender:
         assert "OPENROUTER_API_KEY=sk-or-test" in env_content
         assert "httpx>=0.27" in pyproject
         assert "run_openrouter_tool_loop" in helper
+
+    def test_pydanticai_openrouter_fallback_requires_anthropic_key(self, tmp_path):
+        from create_context_graph.config import ProjectConfig
+
+        config = ProjectConfig(
+            project_name="PydanticAI OpenRouter",
+            domain="financial-services",
+            framework="pydanticai",
+            openrouter_api_key="sk-or-test",
+        )
+        out = tmp_path / "pydanticai-openrouter"
+        ProjectRenderer(config, load_domain(config.domain)).render(out)
+
+        agent = (out / "backend" / "app" / "agent.py").read_text()
+
+        assert 'resolve_agent_provider("anthropic")' in agent
+        assert "and settings.anthropic_api_key" in agent
 
     def test_langgraph_openrouter_dependencies(self, tmp_path):
         from create_context_graph.config import ProjectConfig

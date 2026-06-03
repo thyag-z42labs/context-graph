@@ -39,6 +39,31 @@ from create_context_graph.renderer import ProjectRenderer
 console = Console()
 
 
+def _load_dotenv_from_cwd() -> None:
+    """Load ``.env`` from the current working directory before Click reads envvars.
+
+    This intentionally avoids adding a runtime dependency on python-dotenv for
+    the package CLI. Existing environment variables win over values in .env.
+    """
+    env_path = Path.cwd() / ".env"
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            if value == "":
+                continue
+            os.environ[key] = value
+
+
+_load_dotenv_from_cwd()
+
+
 def _run_import_preview(
     *,
     import_type: str,
@@ -607,10 +632,31 @@ def main(
         console.print("\n[bold]Generating demo data...[/bold]")
         from create_context_graph.generator import generate_fixture_data
 
+        generation_provider = (
+            os.getenv("FIXTURE_GENERATION_PROVIDER")
+            or os.getenv("GENERATION_PROVIDER")
+            or "auto"
+        ).lower()
+        if generation_provider == "auto":
+            if config.openrouter_api_key or os.getenv("OPENROUTER_API_KEY"):
+                generation_provider = "openrouter"
+            elif config.anthropic_api_key or anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"):
+                generation_provider = "anthropic"
+            elif config.openai_api_key or os.getenv("OPENAI_API_KEY"):
+                generation_provider = "openai"
+            else:
+                generation_provider = "anthropic"
+        generation_api_key = {
+            "openrouter": config.openrouter_api_key or os.getenv("OPENROUTER_API_KEY"),
+            "openai": config.openai_api_key or os.getenv("OPENAI_API_KEY"),
+            "anthropic": config.anthropic_api_key or anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"),
+        }.get(generation_provider, config.anthropic_api_key or anthropic_api_key)
+
         generate_fixture_data(
             ontology,
             fixture_path,
-            api_key=config.anthropic_api_key or anthropic_api_key,
+            api_key=generation_api_key,
+            provider=generation_provider,
         )
 
     # Import data from SaaS connectors if configured

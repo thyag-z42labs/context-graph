@@ -530,7 +530,7 @@ demo_scenarios:
     prompts:
       - "Show all enrolling studies with health scores and next milestones"
       - "Which studies are over budget or forecasted above planned budget?"
-      - "Summarize operational health for study ZS-00-003"
+      - "Summarize operational health for study STU-2026-0003"
 
   - name: Country and Site Performance
     prompts:

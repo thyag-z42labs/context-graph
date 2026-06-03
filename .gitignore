@@ -42,6 +42,7 @@ docs/.docusaurus/
 
 # Generated test output
 /foobar/
+/clinical-trials-app/
 
 tmp-e2e-tests/
 tmp*/

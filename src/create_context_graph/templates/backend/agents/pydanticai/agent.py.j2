@@ -96,7 +96,9 @@ legacy_agent = (
         deps_type=AgentDeps,
         retries=2,
     )
-    if agent_provider == "openrouter" and fallback_to_legacy_enabled()
+    if agent_provider == "openrouter"
+    and fallback_to_legacy_enabled()
+    and settings.anthropic_api_key
     else None
 )
 {% endraw %}

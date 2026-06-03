@@ -51,6 +51,17 @@ OPENROUTER_API_BASE={{ openrouter_api_base }}
 OPENROUTER_APP_URL=
 OPENROUTER_APP_TITLE={{ openrouter_app_title }}
 
+# Graph/context generation model routing.
+# Answering LLM: AGENT_PROVIDER / AGENT_MODEL.
+# Memory/context extraction: MEMORY_LLM / MEMORY_EMBEDDING.
+# Synthetic graph fixtures: FIXTURE_GENERATION_PROVIDER / FIXTURE_GENERATION_MODEL.
+# Custom ontology generation: ONTOLOGY_GENERATION_MODEL.
+GENERATION_PROVIDER=auto
+GENERATION_MODEL=
+FIXTURE_GENERATION_PROVIDER=auto
+FIXTURE_GENERATION_MODEL=
+ONTOLOGY_GENERATION_MODEL=
+
 # Application
 DOMAIN_ID={{ domain.id }}
 SESSION_STRATEGY={{ session_strategy }}
