@@ -28,18 +28,6 @@ async def apply_schema():
                     print(f"  Warning: {e}")
 
 
-async def schema_only():
-    """Connect to Neo4j and apply schema without loading fixture data."""
-    if settings.memory_backend == "nams":
-        print("NAMS owns schema; skipping Neo4j schema setup.")
-        return
-    await connect_neo4j()
-    try:
-        await apply_schema()
-    finally:
-        await close_neo4j()
-
-
 def _batch(items: list, size: int = 500) -> list[list]:
     """Split a list into batches."""
     return [items[i:i + size] for i in range(0, len(items), size)]

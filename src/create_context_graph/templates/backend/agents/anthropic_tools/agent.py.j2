@@ -4,16 +4,8 @@ from __future__ import annotations
 
 import inspect
 import json
-import logging
 import os
 
-from app.agent_provider import (
-    anthropic_model,
-    fallback_to_legacy_enabled,
-    resolve_agent_provider,
-    run_openrouter_tool_loop,
-    stream_openrouter_tool_loop,
-)
 from app.config import settings
 
 {% raw %}
@@ -32,8 +24,6 @@ import anthropic
 
 from app.context_graph_client import execute_cypher, get_schema
 from app.memory import store_message, get_context, resolve_session_id
-
-logger = logging.getLogger(__name__)
 
 
 SYSTEM_PROMPT = """{{ system_prompt }}
@@ -133,17 +123,6 @@ def _build_tool_definitions() -> list[dict]:
     return tools
 
 
-async def _execute_registered_tool(tool_name: str, tool_input: dict) -> str:
-    tool_info = TOOL_REGISTRY.get(tool_name)
-    if not tool_info:
-        return json.dumps({"error": f"Unknown tool: {tool_name}"})
-    try:
-        result = await tool_info["function"](**tool_input)
-    except Exception as tool_err:
-        result = json.dumps({"error": f"Tool error: {tool_err}"})
-    return result if isinstance(result, str) else json.dumps(result, default=str)
-
-
 # ---------------------------------------------------------------------------
 # Message handler with agentic tool-use loop
 # ---------------------------------------------------------------------------
@@ -161,35 +140,10 @@ async def handle_message(message: str, session_id: str | None = None) -> dict:
     tools = _build_tool_definitions()
     max_iterations = 15
 
-    provider = resolve_agent_provider("anthropic")
-    if provider == "openrouter":
-        try:
-            response_text = await run_openrouter_tool_loop(
-                messages=messages,
-                tools=tools,
-                execute_tool=_execute_registered_tool,
-                system_prompt=SYSTEM_PROMPT,
-                max_iterations=max_iterations,
-            )
-            if not response_text.strip():
-                response_text = "I searched the knowledge graph but couldn't find relevant results for your query. Could you try rephrasing your question?"
-            assistant_result = await store_message(session_id, "assistant", response_text)
-            return {
-                "response": response_text,
-                "session_id": session_id,
-                "graph_data": None,
-                "entities_extracted": (assistant_result or {}).get("entities", []),
-                "preferences_detected": (assistant_result or {}).get("preferences", []),
-            }
-        except Exception as e:
-            if not fallback_to_legacy_enabled():
-                raise
-            logger.warning("OpenRouter Anthropic Tools call failed; falling back to Anthropic: %s", e)
-
     response_text = ""
     for _iteration in range(max_iterations):
         response = await client.messages.create(
-            model=anthropic_model(),
+            model="claude-sonnet-4-20250514",
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=tools,
@@ -203,7 +157,14 @@ async def handle_message(message: str, session_id: str | None = None) -> dict:
             tool_results = []
             for block in response.content:
                 if block.type == "tool_use":
-                    result = await _execute_registered_tool(block.name, block.input)
+                    tool_info = TOOL_REGISTRY.get(block.name)
+                    if tool_info:
+                        try:
+                            result = await tool_info["function"](**block.input)
+                        except Exception as tool_err:
+                            result = json.dumps({"error": f"Tool error: {tool_err}"})
+                    else:
+                        result = json.dumps({"error": f"Unknown tool: {block.name}"})
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,
@@ -249,40 +210,12 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
     tools = _build_tool_definitions()
     max_iterations = 15
 
-    provider = resolve_agent_provider("anthropic")
-    if provider == "openrouter":
-        try:
-            response_text = await stream_openrouter_tool_loop(
-                messages=messages,
-                tools=tools,
-                execute_tool=_execute_registered_tool,
-                system_prompt=SYSTEM_PROMPT,
-                collector=collector,
-                max_iterations=max_iterations,
-            )
-            if not response_text.strip():
-                response_text = "I searched the knowledge graph but couldn't find relevant results for your query. Could you try rephrasing your question?"
-            assistant_result = await store_message(session_id, "assistant", response_text)
-            if assistant_result:
-                collector.emit_entities_extracted(assistant_result.get("entities", []))
-                collector.emit_preferences_detected(assistant_result.get("preferences", []))
-            collector.emit_done(response_text, session_id)
-            return {
-                "response": response_text,
-                "session_id": session_id,
-                "graph_data": None,
-            }
-        except Exception as e:
-            if not fallback_to_legacy_enabled():
-                raise
-            logger.warning("OpenRouter Anthropic Tools stream failed; falling back to Anthropic: %s", e)
-
     response_text = ""
     try:
         for _iteration in range(max_iterations):
             full_text_parts = []
             async with client.messages.stream(
-                model=anthropic_model(),
+                model="claude-sonnet-4-20250514",
                 max_tokens=4096,
                 system=SYSTEM_PROMPT,
                 tools=tools,
@@ -304,7 +237,14 @@ async def handle_message_stream(message: str, session_id: str | None = None) -> 
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
-                        result = await _execute_registered_tool(block.name, block.input)
+                        tool_info = TOOL_REGISTRY.get(block.name)
+                        if tool_info:
+                            try:
+                                result = await tool_info["function"](**block.input)
+                            except Exception as tool_err:
+                                result = json.dumps({"error": f"Tool error: {tool_err}"})
+                        else:
+                            result = json.dumps({"error": f"Unknown tool: {block.name}"})
                         tool_results.append({
                             "type": "tool_result",
                             "tool_use_id": block.id,

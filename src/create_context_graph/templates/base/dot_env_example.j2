@@ -34,33 +34,11 @@ MEMORY_LLM=
 # MEMORY_EMBEDDING=openai/text-embedding-3-small            # OpenAI native
 MEMORY_EMBEDDING=
 
-# LLM API Keys (for the agent — OpenRouter is preferred; legacy keys support fallback)
+# LLM API Keys (for the agent — set the one your selected framework needs)
 ANTHROPIC_API_KEY=your-anthropic-key-here
 OPENAI_API_KEY=  # Optional: enables OpenAI embeddings for conversation memory (local sentence-transformers used by default)
 GOOGLE_API_KEY=your-google-api-key-here  # Required for google-adk framework
 # ANTHROPIC_MODEL=claude-sonnet-4-20250514  # Override default model for Claude Agent SDK
-
-# Agent model provider (separate from MEMORY_LLM / MEMORY_EMBEDDING).
-# auto prefers OpenRouter when OPENROUTER_API_KEY is set, otherwise falls back
-# to the selected framework's legacy provider.
-AGENT_PROVIDER=auto
-AGENT_MODEL=
-AGENT_FALLBACK_PROVIDER=legacy
-OPENROUTER_API_KEY=
-OPENROUTER_API_BASE={{ openrouter_api_base }}
-OPENROUTER_APP_URL=
-OPENROUTER_APP_TITLE={{ openrouter_app_title }}
-
-# Graph/context generation model routing.
-# Answering LLM: AGENT_PROVIDER / AGENT_MODEL.
-# Memory/context extraction: MEMORY_LLM / MEMORY_EMBEDDING.
-# Synthetic graph fixtures: FIXTURE_GENERATION_PROVIDER / FIXTURE_GENERATION_MODEL.
-# Custom ontology generation: ONTOLOGY_GENERATION_MODEL.
-GENERATION_PROVIDER=auto
-GENERATION_MODEL=
-FIXTURE_GENERATION_PROVIDER=auto
-FIXTURE_GENERATION_MODEL=
-ONTOLOGY_GENERATION_MODEL=
 
 # Application
 DOMAIN_ID={{ domain.id }}

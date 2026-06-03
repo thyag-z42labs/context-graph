@@ -19,7 +19,7 @@ This project uses **Neo4j Agent Memory Service (NAMS)** — a hosted memory back
 # Install dependencies
 make install
 
-# Edit .env to set OPENROUTER_API_KEY (preferred) or the legacy key for {{ framework_display_name }}
+# Edit .env to set ANTHROPIC_API_KEY (required by {{ framework_display_name }})
 # Then start the application
 make start
 ```
@@ -160,11 +160,6 @@ The AI agent has access to the following domain-specific tools:
 
 ## Agent Framework: {{ framework_display_name }}
 
-Agent model routing is OpenRouter-first by default: `AGENT_PROVIDER=auto`
-uses `OPENROUTER_API_KEY` when present, then falls back to this framework's
-legacy provider if `AGENT_FALLBACK_PROVIDER=legacy`. Set `AGENT_MODEL` to test
-different OpenRouter model slugs without changing code.
-
 {% if framework == 'pydanticai' %}
 This project uses [PydanticAI](https://ai.pydantic.dev/) with tool decorators and typed dependencies. The agent is defined in `backend/app/agent.py` using `@agent.tool` decorators for each domain tool. Supports full streaming via `agent.run_stream()`.
 
@@ -172,21 +167,21 @@ To change the LLM model, edit the `Agent(model=...)` parameter in `agent.py`.
 {% elif framework == 'claude_agent_sdk' %}
 This project uses the [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk) with a dict-based tool list and an agentic while loop. The agent handles tool calls iteratively until the model stops requesting tools. Supports full streaming via `client.messages.stream()`.
 
-Prefers `OPENROUTER_API_KEY` in `.env`; falls back to `ANTHROPIC_API_KEY`.
+Requires `ANTHROPIC_API_KEY` in `.env`.
 {% elif framework == 'openai_agents' %}
 This project uses the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) with `@function_tool` decorators and `Runner.run()`. Supports full streaming via `Runner.run_streamed()`.
 
-Prefers `OPENROUTER_API_KEY` in `.env`; falls back to `OPENAI_API_KEY`.
+Requires `OPENAI_API_KEY` in `.env`.
 {% elif framework == 'langgraph' %}
 This project uses [LangGraph](https://langchain-ai.github.io/langgraph/) with `@tool` decorators and `create_react_agent()`. The agent is a compiled graph that manages tool execution state. Supports full streaming via `graph.astream_events()`.
 
-Prefers `OPENROUTER_API_KEY` in `.env`; falls back to `ANTHROPIC_API_KEY` via `langchain-anthropic`.
+Requires `ANTHROPIC_API_KEY` in `.env` (uses `langchain-anthropic`).
 {% elif framework == 'crewai' %}
 This project uses [CrewAI](https://www.crewai.com/) with an Agent/Task/Crew architecture. Tools are decorated with `@tool` and the crew orchestrates execution. Runs synchronously via `asyncio.to_thread()`.
 
 **Note:** CrewAI requires Python 3.11+. Streaming is limited to real-time tool call visualization; text arrives after the crew completes.
 {% elif framework == 'strands' %}
-This project uses [Strands Agents](https://github.com/strands-agents/strands-agents) with `@tool` decorators and OpenRouter-first model routing. It falls back to Anthropic when configured. Runs synchronously via `asyncio.to_thread()`.
+This project uses [Strands Agents](https://github.com/strands-agents/strands-agents) with `@tool` decorators and an Anthropic-backed model. Requires `ANTHROPIC_API_KEY` in your `.env` file. Runs synchronously via `asyncio.to_thread()`.
 
 Streaming is limited to real-time tool call visualization; text arrives after the agent completes.
 {% elif framework == 'google_adk' %}
@@ -196,7 +191,7 @@ Requires a Google Cloud API key or credentials configured for Gemini access.
 {% elif framework == 'anthropic_tools' %}
 This project uses the [Anthropic API](https://docs.anthropic.com/) directly with a modular `@register_tool` registry and an agentic while loop. Supports full streaming via `client.messages.stream()`.
 
-Prefers `OPENROUTER_API_KEY` in `.env`; falls back to `ANTHROPIC_API_KEY`.
+Requires `ANTHROPIC_API_KEY` in `.env`.
 {% endif %}
 
 See `backend/app/agent.py` for the full implementation.

@@ -21,7 +21,6 @@ saves it for future reuse.
 
 from __future__ import annotations
 
-import os
 from importlib.resources import files
 from pathlib import Path
 
@@ -292,9 +291,7 @@ def generate_custom_domain(
             resolved_provider,
             call_prompt,
             system,
-            model=os.getenv("ONTOLOGY_GENERATION_MODEL") or os.getenv("GENERATION_MODEL"),
             max_tokens=_ONTOLOGY_MAX_TOKENS,
-            purpose="ONTOLOGY_GENERATION",
             return_stop_reason=True,
         )
         raw_yaml = _strip_yaml_fences(raw_yaml)

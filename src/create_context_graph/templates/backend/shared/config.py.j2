@@ -34,18 +34,6 @@ class Settings(BaseSettings):
     # LLM provider keys for the agent
     anthropic_api_key: str = ""
     openai_api_key: str = ""
-    google_api_key: str = ""
-
-    # Agent model provider selection. ``auto`` prefers OpenRouter when
-    # OPENROUTER_API_KEY is present, then falls back to the framework legacy
-    # provider. MEMORY_LLM/MEMORY_EMBEDDING below are separate memory-layer knobs.
-    agent_provider: str = "{{ agent_provider }}"
-    agent_model: str = "{{ agent_model }}"
-    agent_fallback_provider: str = "{{ agent_fallback_provider }}"
-    openrouter_api_key: str = ""
-    openrouter_api_base: str = "{{ openrouter_api_base }}"
-    openrouter_app_url: str = "{{ openrouter_app_url }}"
-    openrouter_app_title: str = "{{ openrouter_app_title }}"
     domain_id: str = "{{ domain.id }}"
     session_strategy: str = "{{ session_strategy }}"
     backend_port: int = 8000

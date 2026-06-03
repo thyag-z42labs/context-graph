@@ -13,13 +13,13 @@ Create Context Graph supports 8 agent frameworks. The framework choice only affe
 | Framework | Key | Description | Streaming |
 |-----------|-----|-------------|-----------|
 | **PydanticAI** | `pydanticai` | Type-safe agents with `@agent.tool` decorators and dependency injection via `RunContext` | Full |
-| **Claude Agent SDK** | `claude-agent-sdk` | OpenRouter-first tool loop with Anthropic SDK fallback (max 15 iterations) | Full |
-| **OpenAI Agents SDK** | `openai-agents` | OpenRouter-first OpenAI-compatible routing with OpenAI fallback | Full |
+| **Claude Agent SDK** | `claude-agent-sdk` | Anthropic's SDK with dict-based tool definitions and a bounded agentic loop (max 15 iterations) | Full |
+| **OpenAI Agents SDK** | `openai-agents` | OpenAI's agent framework with `@function_tool` decorators and `Runner.run()` | Full |
 | **LangGraph** | `langgraph` | LangChain's graph-based agent runtime with `@tool` and `create_react_agent()` | Full |
-| **CrewAI** | `crewai` | Multi-agent framework with `Agent`, `Task`, and `Crew` abstractions (OpenRouter-first, thread-safe async bridging) | Full |
-| **Strands** | `strands` | Agent framework using OpenRouter-first model routing with `@tool` decorators (thread-safe async bridging) | Full |
+| **CrewAI** | `crewai` | Multi-agent framework with `Agent`, `Task`, and `Crew` abstractions (uses Anthropic LLM, thread-safe async bridging) | Full |
+| **Strands** | `strands` | Agent framework using Anthropic models with `@tool` decorators (thread-safe async bridging) | Full |
 | **Google ADK** | `google-adk` | Google's Agent Development Kit with `FunctionTool` and Gemini models (requires `GOOGLE_API_KEY`) | Full |
-| **Anthropic Tools** | `anthropic-tools` | Modular `@register_tool` registry with OpenRouter-first routing and Anthropic fallback | Full |
+| **Anthropic Tools** | `anthropic-tools` | Modular agent framework with `@register_tool` registry and bounded Anthropic API agentic loop (max 15 iterations) | Full |
 
 **Streaming column:** "Full" means token-by-token text streaming + real-time tool call events. All frameworks use the same SSE (Server-Sent Events) protocol; CrewAI and Strands run synchronously in a worker thread but stream both text and tool events via framework-specific hooks (`LLMStreamChunkEvent` and `agent.stream_async()`).
 
@@ -75,8 +75,8 @@ Regardless of which framework you choose, the generated project always includes:
 The generated `backend/pyproject.toml` includes only the dependencies needed for the chosen framework. For example:
 
 - `pydanticai` adds `pydantic-ai`
-- `langgraph` adds `langgraph`, `langchain-anthropic`, `langchain-openrouter`, and `langchain-openai`
-- `strands` adds `strands-agents` with Anthropic and OpenAI-compatible model providers
+- `langgraph` adds `langgraph`, `langchain-core`, `langchain-anthropic`
+- `strands` adds `strands-agents`, `strands-agents-builder`, and configures Bedrock
 - `google-adk` adds `google-adk`, `google-generativeai`
 
 All frameworks share common dependencies: `fastapi`, `uvicorn`, `neo4j`, `pydantic`, and `python-dotenv`.
